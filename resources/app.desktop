@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=Tihulu Clipboard Manager
+Comment=COSMIC clipboard manager with visible erase-all controls
+Type=Application
+Icon=io.github.tihulu.ClipboardManager
+Exec=tihulu-clipboard-manager %F
+Terminal=false
+StartupNotify=true
+Categories=COSMIC
+Keywords=COSMIC;Clipboard;History
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicHoverPopup=Auto
+MimeType=
