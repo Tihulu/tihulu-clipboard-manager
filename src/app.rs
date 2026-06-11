@@ -8,7 +8,6 @@ use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_p
 use cosmic::iced::{futures, window::Id, Alignment, Length, Limits, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget;
-use futures::SinkExt;
 
 #[derive(Default)]
 pub struct AppModel {
@@ -57,7 +56,13 @@ impl cosmic::Application for AppModel {
             })
             .unwrap_or_default();
 
-        let store = ClipboardStore::load_or_default();
+        if config.unique_session {
+            let _ = ClipboardStore::delete_persisted_files();
+        }
+
+        let mut store = ClipboardStore::load_or_default(&config);
+        store.prune(&config);
+        let _ = store.save(&config);
 
         (
             AppModel {
@@ -96,6 +101,14 @@ impl cosmic::Application for AppModel {
                 ])
                 .align_y(Alignment::Center),
             );
+
+        if self.config.private_mode {
+            content = content.add(widget::text(fl!("private-mode-enabled")));
+        }
+
+        if self.config.encrypt_history {
+            content = content.add(widget::text(fl!("history-encrypted")));
+        }
 
         if self.confirm_clear_all {
             content = content.add(
@@ -174,46 +187,62 @@ impl cosmic::Application for AppModel {
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
         match message {
             Message::ClipboardChanged(text) => {
-                self.store.add_text(text);
-                self.store.prune_to_max_entries(self.config.max_entries);
-                let _ = self.store.save();
+                let result = self.store.add_text(text, &self.config);
+                if matches!(result, crate::storage::AddTextResult::Added) {
+                    let _ = self.store.save(&self.config);
+                }
             }
             Message::UpdateConfig(config) => {
+                let encryption_changed = self.config.encrypt_history != config.encrypt_history;
+                let unique_session_enabled = !self.config.unique_session && config.unique_session;
                 self.config = config;
-                self.store.prune_to_max_entries(self.config.max_entries);
-                let _ = self.store.save();
+
+                if unique_session_enabled {
+                    self.store.clear_all();
+                    let _ = ClipboardStore::delete_persisted_files();
+                }
+
+                self.store.prune(&self.config);
+
+                if encryption_changed {
+                    let _ = ClipboardStore::delete_persisted_files();
+                }
+
+                let _ = self.store.save(&self.config);
             }
             Message::CopyEntry(_id) => {
                 // TODO: Set the Wayland clipboard to this entry's payload.
             }
             Message::DeleteEntry(id) => {
                 self.store.delete(id);
-                let _ = self.store.save();
+                let _ = self.store.save(&self.config);
             }
             Message::TogglePin(id) => {
                 self.store.toggle_pin(id);
-                self.store.prune_to_max_entries(self.config.max_entries);
-                let _ = self.store.save();
+                self.store.prune(&self.config);
+                let _ = self.store.save(&self.config);
             }
             Message::RequestClearAll => {
                 if self.config.confirm_before_clear_all {
                     self.confirm_clear_all = true;
                 } else {
                     self.store.clear_all();
-                    let _ = self.store.save();
+                    let _ = ClipboardStore::delete_persisted_files();
+                    let _ = self.store.save(&self.config);
                 }
             }
             Message::ConfirmClearAll => {
                 self.store.clear_all();
                 self.confirm_clear_all = false;
-                let _ = self.store.save();
+                let _ = ClipboardStore::delete_persisted_files();
+                let _ = self.store.save(&self.config);
             }
             Message::CancelClearAll => {
                 self.confirm_clear_all = false;
             }
             Message::ClearUnpinned => {
                 self.store.clear_unpinned();
-                let _ = self.store.save();
+                let _ = self.store.save(&self.config);
             }
             Message::TogglePopup => {
                 return if let Some(p) = self.popup.take() {
