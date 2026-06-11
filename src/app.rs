@@ -57,13 +57,7 @@ impl cosmic::Application for AppModel {
             })
             .unwrap_or_default();
 
-        let mut store = ClipboardStore::load_or_default();
-        if store.entries().is_empty() {
-            // Temporary seed entries so the first UI proves the Erase All path works.
-            // Remove after the real Wayland data-control watcher is connected.
-            store.add_text("Welcome to Tihulu Clipboard Manager");
-            store.add_text("Erase All is visible in the main popup");
-        }
+        let store = ClipboardStore::load_or_default();
 
         (
             AppModel {
@@ -166,11 +160,8 @@ impl cosmic::Application for AppModel {
     fn subscription(&self) -> Subscription<Self::Message> {
         Subscription::batch(vec![
             Subscription::run(|| {
-                cosmic::iced::stream::channel(4, move |mut channel: futures::channel::mpsc::Sender<_>| async move {
+                cosmic::iced::stream::channel(4, move |_channel: futures::channel::mpsc::Sender<_>| async move {
                     // TODO: Replace this placeholder with Wayland data-control clipboard events.
-                    // The applet architecture is ready; the watcher should call:
-                    // _ = channel.send(Message::ClipboardChanged(text)).await;
-                    let _ = channel.send(Message::ClipboardChanged(String::new())).await;
                     futures::future::pending().await
                 })
             }),
@@ -184,10 +175,13 @@ impl cosmic::Application for AppModel {
         match message {
             Message::ClipboardChanged(text) => {
                 self.store.add_text(text);
+                self.store.prune_to_max_entries(self.config.max_entries);
                 let _ = self.store.save();
             }
             Message::UpdateConfig(config) => {
                 self.config = config;
+                self.store.prune_to_max_entries(self.config.max_entries);
+                let _ = self.store.save();
             }
             Message::CopyEntry(_id) => {
                 // TODO: Set the Wayland clipboard to this entry's payload.
@@ -198,6 +192,7 @@ impl cosmic::Application for AppModel {
             }
             Message::TogglePin(id) => {
                 self.store.toggle_pin(id);
+                self.store.prune_to_max_entries(self.config.max_entries);
                 let _ = self.store.save();
             }
             Message::RequestClearAll => {
