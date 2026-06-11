@@ -4,6 +4,7 @@ mod app;
 mod config;
 mod i18n;
 mod model;
+mod sensitive;
 mod storage;
 
 fn main() -> cosmic::iced::Result {
