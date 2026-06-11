@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::config::Config;
 use crate::model::{ClipboardEntry, ClipboardPayload};
+use crate::sensitive::looks_sensitive;
+use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    ChaCha20Poly1305, Key, Nonce,
+};
+use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
@@ -8,14 +16,27 @@ use std::{
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
+use zeroize::Zeroizing;
 
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+const KEYRING_SERVICE: &str = "io.github.tihulu.ClipboardManager";
+const KEYRING_USER: &str = "history-encryption-key-v1";
+const ENCRYPTED_FORMAT_VERSION: u8 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipboardStore {
     entries: Vec<ClipboardEntry>,
     next_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EncryptedStoreFile {
+    version: u8,
+    algorithm: String,
+    nonce_b64: String,
+    ciphertext_b64: String,
 }
 
 impl Default for ClipboardStore {
@@ -28,41 +49,80 @@ impl Default for ClipboardStore {
 }
 
 impl ClipboardStore {
-    pub fn load_or_default() -> Self {
-        let path = Self::data_path();
+    pub fn load_or_default(config: &Config) -> Self {
+        let path = Self::data_path(config.encrypt_history);
         let Ok(contents) = fs::read_to_string(path) else {
             return Self::default();
         };
 
-        serde_json::from_str(&contents).unwrap_or_default()
+        if config.encrypt_history {
+            Self::load_encrypted(&contents).unwrap_or_default()
+        } else {
+            serde_json::from_str(&contents).unwrap_or_default()
+        }
     }
 
-    pub fn save(&self) -> io::Result<()> {
-        let path = Self::data_path();
+    pub fn save(&self, config: &Config) -> io::Result<()> {
+        let path = Self::data_path(config.encrypt_history);
         if let Some(parent) = path.parent() {
             create_private_dir(parent)?;
         }
 
-        let contents = serde_json::to_string_pretty(self)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let plaintext = Zeroizing::new(
+            serde_json::to_vec_pretty(self)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
+        );
 
-        write_private_file(&path, contents.as_bytes())
+        let bytes = if config.encrypt_history {
+            Self::encrypt_store(&plaintext)?
+        } else {
+            plaintext.to_vec()
+        };
+
+        write_private_file(&path, &bytes)
+    }
+
+    pub fn delete_persisted_files() -> io::Result<()> {
+        for path in [Self::data_path(false), Self::data_path(true)] {
+            match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
     }
 
     pub fn entries(&self) -> &[ClipboardEntry] {
         &self.entries
     }
 
-    pub fn add_text(&mut self, text: impl Into<String>) {
+    pub fn add_text(&mut self, text: impl Into<String>, config: &Config) -> AddTextResult {
+        if config.private_mode {
+            return AddTextResult::SkippedPrivateMode;
+        }
+
+        if config.max_text_bytes == 0 {
+            return AddTextResult::SkippedTooLarge;
+        }
+
         let text = text.into();
         if text.trim().is_empty() {
-            return;
+            return AddTextResult::SkippedEmpty;
+        }
+
+        if text.len() > config.max_text_bytes {
+            return AddTextResult::SkippedTooLarge;
+        }
+
+        if config.sensitive_filter && looks_sensitive(&text) {
+            return AddTextResult::SkippedSensitive;
         }
 
         if self.entries.iter().any(|entry| {
             matches!(&entry.payload, ClipboardPayload::Text(existing) if existing == &text)
         }) {
-            return;
+            return AddTextResult::SkippedDuplicate;
         }
 
         let entry = ClipboardEntry {
@@ -73,6 +133,23 @@ impl ClipboardStore {
         };
         self.next_id += 1;
         self.entries.insert(0, entry);
+        self.prune(config);
+        AddTextResult::Added
+    }
+
+    pub fn prune(&mut self, config: &Config) {
+        self.prune_to_max_age(config.max_age_days);
+        self.prune_to_max_entries(config.max_entries);
+    }
+
+    pub fn prune_to_max_age(&mut self, max_age_days: u64) {
+        if max_age_days == 0 {
+            return;
+        }
+
+        let cutoff = unix_now().saturating_sub(max_age_days.saturating_mul(24 * 60 * 60));
+        self.entries
+            .retain(|entry| entry.pinned || entry.created_at_unix >= cutoff);
     }
 
     pub fn prune_to_max_entries(&mut self, max_entries: usize) {
@@ -114,7 +191,57 @@ impl ClipboardStore {
         self.entries.retain(|entry| entry.pinned);
     }
 
-    fn data_path() -> PathBuf {
+    fn load_encrypted(contents: &str) -> io::Result<Self> {
+        let file: EncryptedStoreFile = serde_json::from_str(contents)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+
+        if file.version != ENCRYPTED_FORMAT_VERSION || file.algorithm != "ChaCha20Poly1305" {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "unsupported encrypted history format",
+            ));
+        }
+
+        let nonce_bytes = B64
+            .decode(file.nonce_b64)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let ciphertext = B64
+            .decode(file.ciphertext_b64)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+
+        let key = get_or_create_history_key()?;
+        let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
+        let plaintext = cipher
+            .decrypt(Nonce::from_slice(&nonce_bytes), ciphertext.as_ref())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "failed to decrypt history"))?;
+
+        serde_json::from_slice(&plaintext)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    }
+
+    fn encrypt_store(plaintext: &[u8]) -> io::Result<Vec<u8>> {
+        let key = get_or_create_history_key()?;
+        let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
+
+        let mut nonce = [0u8; 12];
+        OsRng.fill_bytes(&mut nonce);
+
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce), plaintext)
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to encrypt history"))?;
+
+        let file = EncryptedStoreFile {
+            version: ENCRYPTED_FORMAT_VERSION,
+            algorithm: "ChaCha20Poly1305".to_string(),
+            nonce_b64: B64.encode(nonce),
+            ciphertext_b64: B64.encode(ciphertext),
+        };
+
+        serde_json::to_vec_pretty(&file)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    }
+
+    fn data_path(encrypted: bool) -> PathBuf {
         let base = std::env::var_os("XDG_DATA_HOME")
             .map(PathBuf::from)
             .or_else(|| {
@@ -124,8 +251,47 @@ impl ClipboardStore {
             })
             .unwrap_or_else(|| PathBuf::from("."));
 
-        base.join("tihulu-clipboard-manager/history.json")
+        let filename = if encrypted {
+            "history.enc.json"
+        } else {
+            "history.json"
+        };
+
+        base.join("tihulu-clipboard-manager").join(filename)
     }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum AddTextResult {
+    Added,
+    SkippedEmpty,
+    SkippedDuplicate,
+    SkippedPrivateMode,
+    SkippedSensitive,
+    SkippedTooLarge,
+}
+
+fn get_or_create_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+        .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+
+    if let Ok(secret) = entry.get_password() {
+        let bytes = B64
+            .decode(secret)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let key: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid key length"))?;
+        return Ok(Zeroizing::new(key));
+    }
+
+    let mut key = Zeroizing::new([0u8; 32]);
+    OsRng.fill_bytes(key.as_mut());
+    entry
+        .set_password(&B64.encode(*key))
+        .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+
+    Ok(key)
 }
 
 fn create_private_dir(path: &std::path::Path) -> io::Result<()> {
