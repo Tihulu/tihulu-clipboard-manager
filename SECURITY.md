@@ -2,7 +2,7 @@
 
 ## Current security status
 
-This applet is **not ready for daily use yet**. It is an early scaffold and does not yet include the real Wayland clipboard watcher or click-to-copy implementation.
+This applet is still under development and should be tested carefully before daily use. The security storage layer is now designed to be stronger than a plaintext clipboard history, but the real Wayland clipboard watcher and click-to-copy implementation still need integration and review.
 
 ## Clipboard data sensitivity
 
@@ -10,24 +10,34 @@ Clipboard managers are sensitive software. Clipboard history can contain passwor
 
 Current mitigations:
 
+- History encryption is enabled by default.
+- Encrypted history uses `ChaCha20Poly1305` authenticated encryption.
+- The encryption key is generated randomly and stored in the OS keyring.
+- The plaintext history file is removed when encryption mode is enabled or toggled.
 - The history file is stored under the user's XDG data directory.
 - On Unix systems, the history directory is forced to `0700`.
 - On Unix systems, the history file is forced to `0600`.
 - `Clear All / Erase All` is visible in the main popup.
 - Clear All requires confirmation by default.
+- Clear All removes both plaintext and encrypted persisted history files before re-saving an empty encrypted store.
 - History length is bounded by configuration.
+- History age is bounded by configuration.
+- Private mode prevents newly captured clipboard items from being stored.
+- Unique session mode clears persisted history at applet startup.
+- Sensitive-content filtering is enabled by default for common passwords, API keys, private keys, tokens, OTPs, and recovery phrase patterns.
+- Oversized text entries are skipped by default.
 
 Current gaps:
 
-- History is stored as plaintext JSON.
-- Sensitive-content detection is not implemented yet.
-- Per-application ignore rules are not implemented yet.
 - Clipboard capture over Wayland data-control is not implemented yet.
 - Click-to-copy back to the clipboard is not implemented yet.
+- Per-application ignore rules are not implemented yet.
+- The sensitive-content filter is heuristic and can have both false positives and false negatives.
+- The OS keyring must be available; if it is unavailable, encrypted history load/save will fail rather than silently falling back to plaintext.
 
 ## Safe testing guidance
 
-Until privacy filters and real clipboard integration are reviewed, test with non-sensitive text only.
+Until real clipboard integration is reviewed, test with non-sensitive text only.
 
 Do not copy the following while testing development builds:
 
