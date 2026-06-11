@@ -9,3 +9,5 @@ pin = Pin
 unpin = Unpin
 delete = Delete
 history-empty = Clipboard history is empty.
+private-mode-enabled = Private mode is enabled. New clipboard items will not be stored.
+history-encrypted = Encrypted history is enabled.
