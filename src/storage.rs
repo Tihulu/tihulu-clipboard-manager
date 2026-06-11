@@ -3,11 +3,14 @@
 use crate::model::{ClipboardEntry, ClipboardPayload};
 use serde::{Deserialize, Serialize};
 use std::{
-    fs,
-    io,
+    fs::{self, OpenOptions},
+    io::{self, Write},
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipboardStore {
@@ -37,12 +40,13 @@ impl ClipboardStore {
     pub fn save(&self) -> io::Result<()> {
         let path = Self::data_path();
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            create_private_dir(parent)?;
         }
 
         let contents = serde_json::to_string_pretty(self)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        fs::write(path, contents)
+
+        write_private_file(&path, contents.as_bytes())
     }
 
     pub fn entries(&self) -> &[ClipboardEntry] {
@@ -69,6 +73,27 @@ impl ClipboardStore {
         };
         self.next_id += 1;
         self.entries.insert(0, entry);
+    }
+
+    pub fn prune_to_max_entries(&mut self, max_entries: usize) {
+        if max_entries == 0 {
+            self.entries.retain(|entry| entry.pinned);
+            return;
+        }
+
+        let pinned_count = self.entries.iter().filter(|entry| entry.pinned).count();
+        let mut unpinned_budget = max_entries.saturating_sub(pinned_count);
+
+        self.entries.retain(|entry| {
+            if entry.pinned {
+                true
+            } else if unpinned_budget > 0 {
+                unpinned_budget -= 1;
+                true
+            } else {
+                false
+            }
+        });
     }
 
     pub fn delete(&mut self, id: u64) {
@@ -100,6 +125,36 @@ impl ClipboardStore {
             .unwrap_or_else(|| PathBuf::from("."));
 
         base.join("tihulu-clipboard-manager/history.json")
+    }
+}
+
+fn create_private_dir(path: &std::path::Path) -> io::Result<()> {
+    fs::create_dir_all(path)?;
+
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+
+    Ok(())
+}
+
+fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        return Ok(());
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::write(path, bytes)
     }
 }
 
