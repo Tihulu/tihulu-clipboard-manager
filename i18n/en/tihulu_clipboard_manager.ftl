@@ -1,0 +1,11 @@
+app-title = Tihulu Clipboard Manager
+clear-all = Clear All
+erase-all = Erase All
+clear-unpinned = Clear Unpinned
+clear-all-confirmation = Erase all clipboard history? This cannot be undone.
+cancel = Cancel
+copy = Copy
+pin = Pin
+unpin = Unpin
+delete = Delete
+history-empty = Clipboard history is empty.
