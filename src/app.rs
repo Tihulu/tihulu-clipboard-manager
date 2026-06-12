@@ -29,6 +29,7 @@ pub enum Message {
     ClipboardImageChanged { mime: String, bytes: Box<[u8]> },
     ClipboardBackendWarning(String),
     UpdateConfig(Config),
+    ToggleImageLimit,
     CopyEntry(u64),
     EntryCopied(Result<(), String>),
     DeleteEntry(u64),
@@ -118,6 +119,10 @@ impl cosmic::Application for AppModel {
 
         if self.config.image_clipboard {
             content = content.add(widget::text(fl!("image-clipboard-enabled")));
+            content = content.add(
+                widget::button(image_limit_label(&self.config))
+                    .on_press(Message::ToggleImageLimit),
+            );
         }
 
         if let Some(warning) = &self.backend_warning {
@@ -235,6 +240,14 @@ impl cosmic::Application for AppModel {
 
                 let _ = self.store.save(&self.config);
             }
+            Message::ToggleImageLimit => {
+                self.config.limit_image_size = !self.config.limit_image_size;
+                self.last_action = Some(if self.config.limit_image_size {
+                    fl!("image-limit-enabled")
+                } else {
+                    fl!("image-limit-disabled")
+                });
+            }
             Message::CopyEntry(id) => {
                 if let Some(entry) = self.store.entries().iter().find(|entry| entry.id == id) {
                     if let Some(text) = entry.text() {
@@ -326,5 +339,13 @@ impl cosmic::Application for AppModel {
 
     fn style(&self) -> Option<cosmic::iced::theme::Style> {
         Some(cosmic::applet::style())
+    }
+}
+
+fn image_limit_label(config: &Config) -> String {
+    if config.limit_image_size {
+        format!("{}: {}", fl!("image-limit"), fl!("limited-25-mib"))
+    } else {
+        format!("{}: {}", fl!("image-limit"), fl!("unlimited"))
     }
 }
