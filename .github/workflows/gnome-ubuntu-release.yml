@@ -1,0 +1,48 @@
+name: GNOME Ubuntu Release
+
+on:
+  push:
+    tags:
+      - 'gnome-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package GNOME Ubuntu release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare package
+        run: |
+          set -euxo pipefail
+          VERSION="${GITHUB_REF_NAME:-manual}"
+          PACKAGE="tihulu-gnome-ubuntu-${VERSION}"
+          mkdir -p "$PACKAGE"
+          cp -R gnome/extension-native "$PACKAGE/extension"
+          cp -R gnome/native-helper "$PACKAGE/native-helper"
+          cp -R gnome/systemd "$PACKAGE/systemd"
+          cp gnome/scripts/quick-install.sh "$PACKAGE/install.sh"
+          cp gnome/scripts/uninstall.sh "$PACKAGE/uninstall.sh"
+          cp gnome/README.md "$PACKAGE/README.md"
+          cp gnome/RELEASE_NOTES.md "$PACKAGE/RELEASE_NOTES.md"
+          cp gnome/CHECKS.md "$PACKAGE/CHECKS.md"
+          chmod +x "$PACKAGE/install.sh" "$PACKAGE/uninstall.sh"
+          zip -r "${PACKAGE}.zip" "$PACKAGE"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tihulu-gnome-ubuntu-package
+          path: tihulu-gnome-ubuntu-*.zip
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tihulu-gnome-ubuntu-*.zip
+          body_path: gnome/RELEASE_NOTES.md
