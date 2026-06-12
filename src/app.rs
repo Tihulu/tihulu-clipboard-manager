@@ -43,6 +43,7 @@ pub enum Message {
     ClearSearch,
     SetPrivateMode(bool),
     SetUniqueSession(bool),
+    SetSensitiveFilter(bool),
     SetImageLimit(bool),
     CopyEntry(u64),
     EntryCopied(Result<(), String>),
@@ -190,6 +191,15 @@ impl cosmic::Application for AppModel {
                 });
                 persist_config(&self.config);
             }
+            Message::SetSensitiveFilter(value) => {
+                self.config.sensitive_filter = value;
+                self.last_action = Some(if value {
+                    fl!("sensitive-filter-enabled")
+                } else {
+                    fl!("sensitive-filter-disabled")
+                });
+                persist_config(&self.config);
+            }
             Message::SetImageLimit(value) => {
                 self.config.limit_image_size = value;
                 self.last_action = Some(if value {
@@ -316,8 +326,8 @@ impl AppModel {
             PopupKind::Settings => Limits::NONE
                 .min_width(340.0)
                 .max_width(380.0)
-                .min_height(180.0)
-                .max_height(320.0),
+                .min_height(220.0)
+                .max_height(380.0),
         };
 
         tasks.push(get_popup(settings));
@@ -391,7 +401,7 @@ impl AppModel {
     }
 
     fn settings_popup(&self) -> Element<'_, Message> {
-        let mut content = widget::column::with_capacity(7)
+        let mut content = widget::column::with_capacity(8)
             .spacing(14)
             .padding(14)
             .push(widget::text::title3(fl!("app-title")))
@@ -404,6 +414,11 @@ impl AppModel {
                 fl!("unique-session"),
                 self.config.unique_session,
                 Message::SetUniqueSession,
+            ))
+            .push(settings_switch_row(
+                fl!("sensitive-filter"),
+                self.config.sensitive_filter,
+                Message::SetSensitiveFilter,
             ))
             .push(settings_switch_row(
                 fl!("image-limit"),
@@ -442,6 +457,7 @@ fn status_row(config: &Config) -> Element<'static, Message> {
     widget::row::with_children(vec![
         badge(fl!("badge-encrypted"), config.encrypt_history),
         badge(fl!("badge-images"), config.image_clipboard),
+        badge(fl!("badge-sensitive"), config.sensitive_filter),
         badge(fl!("badge-incognito"), config.private_mode),
     ])
     .spacing(10)
