@@ -21,15 +21,15 @@ Tihulu Clipboard Manager focuses on privacy, clear history controls, and encrypt
 - Maximum history size
 - Maximum history age, default 30 days
 - Sensitive-content filter for common passwords, API keys, private keys, tokens, OTPs, and recovery phrases
-- Oversized text and image entry protection
-- Image payload size limit, default 25 MiB
+- Oversized text entry protection
+- Image clipboard size switch: limited mode defaults to 25 MiB, no-size-cap mode skips the image size check
 - Clear unpinned items while keeping pinned entries
 - Delete individual entries
 - Pin / unpin entries
 
 ## Current status
 
-The security storage layer, popup actions, text/image clipboard watcher, and click-to-copy path are implemented in the scaffold.
+The security storage layer, popup actions, text/image clipboard watcher, image limit switch, and click-to-copy path are implemented in the scaffold.
 
 Still needed before daily use:
 
@@ -75,6 +75,8 @@ sudo just install
 Clipboard managers are sensitive software. Treat this applet like a password-adjacent tool.
 
 Do not test development builds with real passwords, recovery phrases, API keys, SSH keys, or personal documents until the watcher and click-to-copy code has had a second security review on the target COSMIC system.
+
+No-size-cap image mode can store very large screenshots or photos. Keep limited mode enabled unless you specifically need larger image clipboard entries.
 
 Read [`SECURITY.md`](SECURITY.md) before testing.
 
