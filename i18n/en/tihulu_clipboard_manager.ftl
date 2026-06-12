@@ -11,3 +11,6 @@ delete = Delete
 history-empty = Clipboard history is empty.
 private-mode-enabled = Private mode is enabled. New clipboard items will not be stored.
 history-encrypted = Encrypted history is enabled.
+backend-warning = Clipboard backend warning:
+copied = Copied to clipboard.
+copy-failed = Copy failed:
