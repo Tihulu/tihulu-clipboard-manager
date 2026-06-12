@@ -1,26 +1,41 @@
 # Tihulu Clipboard Manager for GNOME
 
-This folder contains a separate GNOME Shell extension prototype for Tihulu Clipboard Manager.
+This folder contains a separate GNOME Shell extension implementation for Tihulu Clipboard Manager.
 
-It is independent from the COSMIC applet in the repository root. The GNOME version is written as a GNOME Shell JavaScript extension and currently focuses on copied text history.
+It is independent from the COSMIC applet in the repository root. The GNOME version is written as a GNOME Shell JavaScript extension and is designed to match the COSMIC applet workflow as closely as possible on GNOME Shell.
 
-## Features
+## Implemented features
 
 - GNOME top panel indicator
 - Local copied text history
-- Click an entry to copy it back to the clipboard
+- Click `Copy` to copy an old entry back to the clipboard
 - Search clipboard history
-- Clear history
+- Pin and unpin entries
+- Delete individual entries
+- Clear unpinned entries
+- Erase all entries with confirmation
 - Private mode toggle that temporarily stops saving new clipboard text
-- Local JSON history file under `~/.local/share/tihulu-clipboard-manager-gnome/history.json`
+- Unique session toggle that clears history when enabled
+- Sensitive text filter for common secrets such as private keys, API keys, tokens, and password-like assignments
+- Max entry count pruning
+- Max age pruning
+- Max text byte limit
+- Local config file under `~/.local/share/tihulu-clipboard-manager-gnome/config.json`
+- Local history file under `~/.local/share/tihulu-clipboard-manager-gnome/history.json`
 
-## Current limitations
+## Not yet equal to the COSMIC version
 
-- Text clipboard history only
-- No image clipboard history yet
-- No encryption yet
-- No GNOME preferences window yet
-- Tested as an initial GNOME Shell extension skeleton; GNOME Shell API compatibility should be verified on your target GNOME version
+The COSMIC version has native Rust storage and can support stronger security features directly. GNOME Shell extensions run inside GNOME Shell JavaScript, so full parity needs a native helper process.
+
+Still missing from the GNOME version:
+
+- Encrypted history storage
+- Image clipboard history
+- Image size limit controls
+- GNOME preferences window
+- Native keyring-backed encryption key management
+
+The current GNOME extension is now feature-aligned for text history and privacy workflow, but not yet fully security-equivalent to the COSMIC Rust applet.
 
 ## Quick install from GitHub
 
@@ -86,8 +101,10 @@ You can also inspect the installed extension list:
 gnome-extensions list | grep tihulu
 ```
 
-## Security notes
+## Safety notes
 
-The current GNOME prototype stores copied text history in a local JSON file. Do not use it with real passwords, access tokens, API keys, or private secrets until encryption and sensitive-content filtering are added.
+The GNOME version currently stores copied text history in a local JSON file. It has a sensitive-text filter and private mode, but it does not yet encrypt the history file. Do not use it with real passwords, access tokens, API keys, private keys, or private secrets until the native helper with encryption is added.
 
-The COSMIC version in the repository root has a richer privacy/security model; the GNOME version starts as a separate clean-room implementation and should be hardened step by step.
+## Next parity step
+
+To reach full COSMIC parity, add a native helper under `gnome/native-helper/` that handles encrypted storage, image clipboard reading/writing, keyring integration, and security tests. The GNOME Shell extension should then become only the panel UI and call the helper for storage and clipboard operations.
