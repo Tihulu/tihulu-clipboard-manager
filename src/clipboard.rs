@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::app::Message;
-use futures::{channel::mpsc::Sender, SinkExt};
+use futures::{SinkExt, channel::mpsc::Sender};
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -147,8 +147,17 @@ mod tests {
 
     #[test]
     fn image_hash_includes_mime_and_bytes() {
-        assert_eq!(hash_payload("image/png", &[1, 2]), hash_payload("image/png", &[1, 2]));
-        assert_ne!(hash_payload("image/png", &[1, 2]), hash_payload("image/jpeg", &[1, 2]));
-        assert_ne!(hash_payload("image/png", &[1, 2]), hash_payload("image/png", &[1, 3]));
+        assert_eq!(
+            hash_payload("image/png", &[1, 2]),
+            hash_payload("image/png", &[1, 2])
+        );
+        assert_ne!(
+            hash_payload("image/png", &[1, 2]),
+            hash_payload("image/jpeg", &[1, 2])
+        );
+        assert_ne!(
+            hash_payload("image/png", &[1, 2]),
+            hash_payload("image/png", &[1, 3])
+        );
     }
 }
