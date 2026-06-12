@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::config::Config;
-use crate::model::{ClipboardEntry, ClipboardPayload};
+use crate::model::{encode_image_payload, ClipboardEntry, ClipboardPayload};
 use crate::sensitive::looks_sensitive;
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use chacha20poly1305::{
@@ -24,6 +24,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 const KEYRING_SERVICE: &str = "io.github.tihulu.ClipboardManager";
 const KEYRING_USER: &str = "history-encryption-key-v1";
 const ENCRYPTED_FORMAT_VERSION: u8 = 1;
+const ALLOWED_IMAGE_MIME_TYPES: &[&str] = &["image/png", "image/jpeg", "image/webp", "image/gif"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipboardStore {
@@ -97,32 +98,32 @@ impl ClipboardStore {
         &self.entries
     }
 
-    pub fn add_text(&mut self, text: impl Into<String>, config: &Config) -> AddTextResult {
+    pub fn add_text(&mut self, text: impl Into<String>, config: &Config) -> AddContentResult {
         if config.private_mode {
-            return AddTextResult::SkippedPrivateMode;
+            return AddContentResult::SkippedPrivateMode;
         }
 
         if config.max_text_bytes == 0 {
-            return AddTextResult::SkippedTooLarge;
+            return AddContentResult::SkippedTooLarge;
         }
 
         let text = text.into();
         if text.trim().is_empty() {
-            return AddTextResult::SkippedEmpty;
+            return AddContentResult::SkippedEmpty;
         }
 
         if text.len() > config.max_text_bytes {
-            return AddTextResult::SkippedTooLarge;
+            return AddContentResult::SkippedTooLarge;
         }
 
         if config.sensitive_filter && looks_sensitive(&text) {
-            return AddTextResult::SkippedSensitive;
+            return AddContentResult::SkippedSensitive;
         }
 
         if self.entries.iter().any(|entry| {
             matches!(&entry.payload, ClipboardPayload::Text(existing) if existing == &text)
         }) {
-            return AddTextResult::SkippedDuplicate;
+            return AddContentResult::SkippedDuplicate;
         }
 
         let entry = ClipboardEntry {
@@ -134,7 +135,48 @@ impl ClipboardStore {
         self.next_id += 1;
         self.entries.insert(0, entry);
         self.prune(config);
-        AddTextResult::Added
+        AddContentResult::Added
+    }
+
+    pub fn add_image(&mut self, mime: impl Into<String>, bytes: &[u8], config: &Config) -> AddContentResult {
+        if config.private_mode {
+            return AddContentResult::SkippedPrivateMode;
+        }
+
+        if !config.image_clipboard || config.max_image_bytes == 0 {
+            return AddContentResult::SkippedUnsupportedMime;
+        }
+
+        let mime = mime.into();
+        if !is_allowed_image_mime(&mime) {
+            return AddContentResult::SkippedUnsupportedMime;
+        }
+
+        if bytes.is_empty() {
+            return AddContentResult::SkippedEmpty;
+        }
+
+        if bytes.len() > config.max_image_bytes {
+            return AddContentResult::SkippedTooLarge;
+        }
+
+        if self.entries.iter().any(|entry| {
+            matches!(&entry.payload, ClipboardPayload::Image { mime: existing_mime, size_bytes, .. } if existing_mime == &mime && *size_bytes == bytes.len())
+                && entry.image().is_some_and(|(_, existing_bytes)| existing_bytes == bytes)
+        }) {
+            return AddContentResult::SkippedDuplicate;
+        }
+
+        let entry = ClipboardEntry {
+            id: self.next_id,
+            payload: encode_image_payload(mime, bytes),
+            pinned: false,
+            created_at_unix: unix_now(),
+        };
+        self.next_id += 1;
+        self.entries.insert(0, entry);
+        self.prune(config);
+        AddContentResult::Added
     }
 
     pub fn prune(&mut self, config: &Config) {
@@ -262,18 +304,22 @@ impl ClipboardStore {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum AddTextResult {
+pub enum AddContentResult {
     Added,
     SkippedEmpty,
     SkippedDuplicate,
     SkippedPrivateMode,
     SkippedSensitive,
     SkippedTooLarge,
+    SkippedUnsupportedMime,
+}
+
+pub fn is_allowed_image_mime(mime: &str) -> bool {
+    ALLOWED_IMAGE_MIME_TYPES.contains(&mime)
 }
 
 fn get_or_create_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .map_err(io::Error::other)?;
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(io::Error::other)?;
 
     if let Ok(secret) = entry.get_password() {
         let bytes = B64
@@ -329,4 +375,47 @@ fn unix_now() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_allowed_image_mime, AddContentResult, ClipboardStore};
+    use crate::config::Config;
+
+    #[test]
+    fn image_mime_allowlist_is_strict() {
+        assert!(is_allowed_image_mime("image/png"));
+        assert!(is_allowed_image_mime("image/jpeg"));
+        assert!(!is_allowed_image_mime("image/svg+xml"));
+        assert!(!is_allowed_image_mime("text/html"));
+    }
+
+    #[test]
+    fn image_size_limit_is_enforced() {
+        let config = Config {
+            max_image_bytes: 3,
+            ..Config::default()
+        };
+        let mut store = ClipboardStore::default();
+
+        assert_eq!(
+            store.add_image("image/png", &[1, 2, 3, 4], &config),
+            AddContentResult::SkippedTooLarge
+        );
+    }
+
+    #[test]
+    fn image_can_be_added_and_deduplicated() {
+        let config = Config::default();
+        let mut store = ClipboardStore::default();
+
+        assert_eq!(
+            store.add_image("image/png", &[1, 2, 3, 4], &config),
+            AddContentResult::Added
+        );
+        assert_eq!(
+            store.add_image("image/png", &[1, 2, 3, 4], &config),
+            AddContentResult::SkippedDuplicate
+        );
+    }
 }
