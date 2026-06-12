@@ -21,7 +21,7 @@ need_cmd() {
 }
 
 missing=0
-for cmd in git cargo gnome-extensions; do
+for cmd in git cargo gnome-extensions systemctl timeout; do
     if ! need_cmd "$cmd"; then
         echo "$cmd is required." >&2
         missing=1
@@ -52,6 +52,15 @@ case "${XDG_SESSION_TYPE:-unknown}" in
 esac
 
 if [ "$missing" -ne 0 ]; then
+    cat >&2 <<'MSG'
+
+Ubuntu / Pop!_OS dependency install:
+
+  sudo apt update
+  sudo apt install -y git cargo gnome-shell-extensions xclip wl-clipboard coreutils build-essential pkg-config libssl-dev
+
+Then run this installer again.
+MSG
     exit 1
 fi
 
@@ -59,25 +68,75 @@ TMP_DIR="$(mktemp -d)"
 git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$TMP_DIR/repo"
 
 SOURCE_DIR="$TMP_DIR/repo/gnome/extension-native"
+HELPER_DIR="$TMP_DIR/repo/gnome/native-helper"
+SERVICE_SRC="$TMP_DIR/repo/gnome/systemd/tihulu-gnome-clipboard-daemon.service"
 DEST_DIR="$HOME/.local/share/gnome-shell/extensions/$UUID"
 BIN_DIR="$HOME/.local/bin"
+SERVICE_DEST="$HOME/.config/systemd/user/tihulu-gnome-clipboard-daemon.service"
+DATA_DIR="$HOME/.local/share/tihulu-clipboard-manager-gnome"
 
 if [ ! -f "$SOURCE_DIR/metadata.json" ] || [ ! -f "$SOURCE_DIR/extension.js" ]; then
     echo "GNOME extension source files were not found in $SOURCE_DIR." >&2
     exit 1
 fi
 
-cargo build --release --manifest-path "$TMP_DIR/repo/gnome/native-helper/Cargo.toml"
+if [ ! -f "$SERVICE_SRC" ]; then
+    echo "GNOME daemon service was not found in $SERVICE_SRC." >&2
+    exit 1
+fi
+
+echo "Disabling old extension and daemon if present..."
+gnome-extensions disable "$UUID" >/dev/null 2>&1 || true
+systemctl --user stop tihulu-gnome-clipboard-daemon.service >/dev/null 2>&1 || true
+
+if [ "${RESET_HISTORY:-0}" = "1" ] && [ -d "$DATA_DIR" ]; then
+    backup="${DATA_DIR}.bak-$(date +%s)"
+    echo "Backing up existing history to $backup"
+    mv "$DATA_DIR" "$backup"
+fi
+
+rm -rf "$DATA_DIR/previews" 2>/dev/null || true
+if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    rm -rf "$XDG_RUNTIME_DIR/tihulu-clipboard-manager-gnome/previews" 2>/dev/null || true
+fi
+
+echo "Building native helper..."
+cargo build --release --manifest-path "$HELPER_DIR/Cargo.toml"
 mkdir -p "$BIN_DIR"
-cp "$TMP_DIR/repo/gnome/native-helper/target/release/$HELPER" "$BIN_DIR/$HELPER"
+cp "$HELPER_DIR/target/release/$HELPER" "$BIN_DIR/$HELPER"
 chmod 0755 "$BIN_DIR/$HELPER"
 
+echo "Installing GNOME extension..."
 rm -rf "$DEST_DIR"
 mkdir -p "$(dirname "$DEST_DIR")"
 cp -R "$SOURCE_DIR" "$DEST_DIR"
 
+echo "Installing systemd user daemon..."
+mkdir -p "$(dirname "$SERVICE_DEST")"
+cp "$SERVICE_SRC" "$SERVICE_DEST"
+systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_SESSION_TYPE DBUS_SESSION_BUS_ADDRESS || true
+systemctl --user daemon-reload
+systemctl --user enable --now tihulu-gnome-clipboard-daemon.service
+
 gnome-extensions enable "$UUID" || true
 
-printf '\nTihulu Clipboard Manager GNOME extension installed.\n'
-printf 'Native helper installed to %s/%s.\n' "$BIN_DIR" "$HELPER"
-printf 'If it does not appear immediately, log out and log back in. On Xorg you can also press Alt+F2, type r, and press Enter.\n'
+cat <<MSG
+
+Tihulu Clipboard Manager GNOME/Ubuntu installed.
+
+What was installed:
+  Extension: $DEST_DIR
+  Helper:    $BIN_DIR/$HELPER
+  Service:   $SERVICE_DEST
+  Data:      $DATA_DIR
+
+Status:
+  systemctl --user status tihulu-gnome-clipboard-daemon.service --no-pager
+
+Logs:
+  journalctl --user -u tihulu-gnome-clipboard-daemon.service -f
+
+X11 shell refresh:
+  Alt + F2 → r → Enter
+
+MSG
