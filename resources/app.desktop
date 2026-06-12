@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Tihulu Clipboard Manager
-Comment=COSMIC clipboard manager with visible erase-all controls
+Comment=Encrypted local clipboard history
 Type=Application
 Icon=io.github.tihulu.ClipboardManager
 Exec=tihulu-clipboard-manager %F
