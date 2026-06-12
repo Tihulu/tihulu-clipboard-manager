@@ -1,0 +1,13 @@
+[Unit]
+Description=Tihulu GNOME Clipboard Daemon
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/bash -lc 'while true; do timeout 5s %h/.local/bin/tihulu-gnome-clipboard-helper capture >/dev/null 2>&1 || true; sleep 1; done'
+Restart=on-failure
+RestartSec=2
+PassEnvironment=DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_SESSION_TYPE DBUS_SESSION_BUS_ADDRESS
+
+[Install]
+WantedBy=default.target
