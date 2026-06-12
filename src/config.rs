@@ -3,7 +3,7 @@
 use cosmic::cosmic_config::{self, cosmic_config_derive::CosmicConfigEntry, CosmicConfigEntry};
 
 #[derive(Debug, Clone, CosmicConfigEntry, Eq, PartialEq)]
-#[version = 3]
+#[version = 4]
 pub struct Config {
     pub confirm_before_clear_all: bool,
     pub max_entries: usize,
@@ -22,7 +22,9 @@ pub struct Config {
     pub max_text_bytes: usize,
     /// Store common image clipboard payloads.
     pub image_clipboard: bool,
-    /// Maximum image payload size to store, in bytes. 0 disables image storage.
+    /// Enforce max_image_bytes when image_clipboard is enabled.
+    pub limit_image_size: bool,
+    /// Maximum image payload size to store, in bytes when limit_image_size is true.
     pub max_image_bytes: usize,
 }
 
@@ -39,6 +41,7 @@ impl Default for Config {
             sensitive_filter: true,
             max_text_bytes: 256 * 1024,
             image_clipboard: true,
+            limit_image_size: true,
             max_image_bytes: 25 * 1024 * 1024,
         }
     }
