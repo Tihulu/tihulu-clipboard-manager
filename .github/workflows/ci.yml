@@ -16,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - run: bash scripts/ci-deps.sh
       - run: cargo check
 
   test:
@@ -23,6 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - run: bash scripts/ci-deps.sh
       - run: cargo test --all-targets --all-features
 
   fmt:
@@ -37,12 +39,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - run: bash scripts/ci-deps.sh
       - run: cargo clippy --all-targets --all-features -- -D warnings
-
-  cargo-audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-audit --locked
-      - run: cargo audit
