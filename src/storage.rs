@@ -120,9 +120,9 @@ impl ClipboardStore {
             return AddContentResult::SkippedSensitive;
         }
 
-        if self.entries.iter().any(|entry| {
-            matches!(&entry.payload, ClipboardPayload::Text(existing) if existing == &text)
-        }) {
+        if self.entries.iter().any(
+            |entry| matches!(&entry.payload, ClipboardPayload::Text(existing) if existing == &text),
+        ) {
             return AddContentResult::SkippedDuplicate;
         }
 
