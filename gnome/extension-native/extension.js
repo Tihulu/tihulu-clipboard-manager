@@ -2,6 +2,7 @@
 
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -11,6 +12,8 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 const POLL_INTERVAL_MS = 900;
 const HELPER_NAME = 'tihulu-gnome-clipboard-helper';
+const MENU_WIDTH_PX = 360;
+const ENTRY_LABEL_WIDTH_PX = 170;
 
 function helperPath() {
     return GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', HELPER_NAME]);
@@ -33,6 +36,15 @@ class ClipboardIndicator extends PanelMenu.Button {
         this._timeoutId = 0;
         this._lastError = null;
         this._stateFingerprint = '';
+
+        this.menu.box.style = `min-width: ${MENU_WIDTH_PX}px; max-width: ${MENU_WIDTH_PX}px;`;
+        this.menu.connect('open-state-changed', (_menu, isOpen) => {
+            if (isOpen) {
+                this._refresh('state');
+            } else {
+                this._confirmClearAll = false;
+            }
+        });
 
         this.add_child(new St.Icon({
             icon_name: 'edit-paste-symbolic',
@@ -106,8 +118,8 @@ class ClipboardIndicator extends PanelMenu.Button {
 
         // The capture timer runs often. Rebuilding the menu while it is open makes
         // GNOME Shell look like the applet is constantly refreshing and also breaks
-        // typing in the search field. Keep the current popup stable; new entries
-        // will appear on the next manual action or when the popup is reopened.
+        // typing in the search field. Keep the current popup stable during polling.
+        // Opening the menu calls a fresh `state` refresh, so old entries are not stale.
         if (command === 'capture' && this.menu.isOpen) {
             return;
         }
@@ -128,6 +140,7 @@ class ClipboardIndicator extends PanelMenu.Button {
 
     _buildMenu() {
         this.menu.removeAll();
+        this.menu.box.style = `min-width: ${MENU_WIDTH_PX}px; max-width: ${MENU_WIDTH_PX}px;`;
         this.menu.addMenuItem(new PopupMenu.PopupMenuItem('Tihulu Clipboard Manager', {reactive: false}));
 
         if (this._lastError) {
@@ -215,7 +228,13 @@ class ClipboardIndicator extends PanelMenu.Button {
             const row = new PopupMenu.PopupBaseMenuItem({reactive: false});
             const marker = entry.pinned ? '●' : '○';
             const prefix = entry.kind === 'image' ? 'Image: ' : '';
-            row.add_child(new St.Label({text: `${marker} ${prefix}${entry.preview}`, x_expand: true}));
+            const label = new St.Label({
+                text: `${marker} ${prefix}${entry.preview}`,
+                x_expand: true,
+                style: `max-width: ${ENTRY_LABEL_WIDTH_PX}px;`,
+            });
+            label.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
+            row.add_child(label);
             row.add_child(this._entryButton('Copy', () => this._helperAction(['copy', `${entry.id}`])));
             row.add_child(this._entryButton(entry.pinned ? 'Unpin' : 'Pin', () => this._helperAction(['toggle-pin', `${entry.id}`])));
             row.add_child(this._entryButton('Delete', () => this._helperAction(['delete', `${entry.id}`])));
