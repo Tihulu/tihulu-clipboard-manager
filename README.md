@@ -12,6 +12,42 @@ Tihulu focuses on privacy, visible clear controls, encrypted local storage, and 
 | COSMIC / Wayland | COSMIC applet installer | Native COSMIC applet project. Uses `wl-paste`/`wl-copy` for the current backend. |
 | Other desktops | Not packaged yet | Manual testing only. |
 
+## Update from GitHub
+
+For an already-installed system, use the updater:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/update-from-github.sh | bash
+```
+
+Force GNOME/Ubuntu:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/update-from-github.sh -o /tmp/tihulu-update.sh
+bash /tmp/tihulu-update.sh --gnome
+```
+
+Force COSMIC:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/update-from-github.sh -o /tmp/tihulu-update.sh
+bash /tmp/tihulu-update.sh --cosmic
+```
+
+Update from another branch:
+
+```bash
+bash /tmp/tihulu-update.sh --gnome --branch main
+```
+
+The updater clones or updates the repo under:
+
+```text
+~/.cache/tihulu-clipboard-manager/update
+```
+
+Then it runs the correct installer for GNOME or COSMIC.
+
 ## GNOME / Ubuntu quick install
 
 Install dependencies first:
