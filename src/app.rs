@@ -28,6 +28,7 @@ pub struct AppModel {
     store: ClipboardStore,
     confirm_clear_all: bool,
     last_action: Option<String>,
+    search_query: String,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,8 @@ pub enum Message {
     ClipboardChanged(String),
     ClipboardImageChanged { mime: String, bytes: Box<[u8]> },
     UpdateConfig(Config),
+    SearchChanged(String),
+    ClearSearch,
     SetPrivateMode(bool),
     SetUniqueSession(bool),
     SetImageLimit(bool),
@@ -138,6 +141,12 @@ impl cosmic::Application for AppModel {
 
                 let _ = self.store.save(&self.config);
             }
+            Message::SearchChanged(query) => {
+                self.search_query = query;
+            }
+            Message::ClearSearch => {
+                self.search_query.clear();
+            }
             Message::SetPrivateMode(value) => {
                 self.config.private_mode = value;
                 self.last_action = Some(if value { fl!("incognito-enabled") } else { fl!("incognito-disabled") });
@@ -193,6 +202,7 @@ impl cosmic::Application for AppModel {
             Message::ConfirmClearAll => {
                 self.store.clear_all();
                 self.confirm_clear_all = false;
+                self.search_query.clear();
                 let _ = ClipboardStore::delete_persisted_files();
                 let _ = self.store.save(&self.config);
             }
@@ -262,23 +272,35 @@ impl AppModel {
     }
 
     fn history_popup(&self) -> Element<'_, Message> {
-        let mut list = widget::column::with_capacity(self.store.entries().len().max(1))
+        let query = self.search_query.trim().to_lowercase();
+        let is_searching = !query.is_empty();
+        let entries: Vec<&ClipboardEntry> = self
+            .store
+            .entries()
+            .iter()
+            .filter(|entry| !is_searching || entry_matches_query(entry, &query))
+            .collect();
+
+        let mut list = widget::column::with_capacity(entries.len().max(1))
             .spacing(12)
             .width(Length::Fill);
 
         if self.store.entries().is_empty() {
             list = list.push(widget::container(widget::text(fl!("history-empty"))).padding(12));
+        } else if entries.is_empty() {
+            list = list.push(widget::container(widget::text(fl!("no-results"))).padding(12));
         } else {
-            for entry in self.store.entries() {
+            for entry in entries.iter().copied() {
                 list = list.push(entry_card(entry));
             }
         }
 
-        let mut content = widget::column::with_capacity(7)
+        let mut content = widget::column::with_capacity(9)
             .spacing(12)
             .padding(16)
             .push(header_row())
-            .push(status_row(&self.config));
+            .push(status_row(&self.config))
+            .push(search_row(&self.search_query));
 
         if let Some(action) = &self.last_action {
             content = content.push(widget::container(widget::text(action.clone())).padding(8));
@@ -298,7 +320,7 @@ impl AppModel {
                         .on_press(Message::ClearUnpinned)
                         .into(),
                     widget::Space::new().width(Length::Fill).into(),
-                    widget::text(format!("{}: {}", fl!("entries"), self.store.entries().len())).into(),
+                    widget::text(result_count_label(is_searching, entries.len(), self.store.entries().len())).into(),
                 ])
                 .align_y(Alignment::Center),
             );
@@ -360,6 +382,26 @@ fn status_row(config: &Config) -> Element<'static, Message> {
     ])
     .spacing(10)
     .into()
+}
+
+fn search_row(query: &str) -> Element<'_, Message> {
+    let search = widget::search_input(fl!("search-placeholder"), query)
+        .on_input(Message::SearchChanged)
+        .width(Length::Fill);
+
+    if query.is_empty() {
+        search.into()
+    } else {
+        widget::row::with_children(vec![
+            search.into(),
+            widget::button::text(fl!("clear-search"))
+                .on_press(Message::ClearSearch)
+                .into(),
+        ])
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .into()
+    }
 }
 
 fn settings_switch_row(
@@ -446,6 +488,24 @@ fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
 fn badge(label: String, active: bool) -> Element<'static, Message> {
     let marker = if active { "●" } else { "○" };
     widget::container(widget::text(format!("{marker} {label}"))).padding(6).into()
+}
+
+fn entry_matches_query(entry: &ClipboardEntry, query: &str) -> bool {
+    let haystack = if let Some(text) = entry.text() {
+        text.to_lowercase()
+    } else {
+        entry.preview().to_lowercase()
+    };
+
+    haystack.contains(query)
+}
+
+fn result_count_label(is_searching: bool, shown: usize, total: usize) -> String {
+    if is_searching {
+        format!("{}: {shown}/{total}", fl!("results"))
+    } else {
+        format!("{}: {total}", fl!("entries"))
+    }
 }
 
 fn persist_config(config: &Config) {
