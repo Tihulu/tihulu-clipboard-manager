@@ -2,11 +2,11 @@
 
 ## Current security status
 
-This applet is still under development and should be tested carefully before daily use. The security storage layer is now designed to be stronger than a plaintext clipboard history, but the real Wayland clipboard watcher and click-to-copy implementation still need integration and review.
+This applet is still under development and should be tested carefully before daily use. The security storage layer is now designed to be stronger than a plaintext clipboard history, and the first `wl-clipboard`-based text/image watcher plus click-to-copy path is implemented. The code still needs compile, runtime, and security review on the target COSMIC system.
 
 ## Clipboard data sensitivity
 
-Clipboard managers are sensitive software. Clipboard history can contain passwords, recovery codes, API tokens, personal messages, addresses, commands, and other private data.
+Clipboard managers are sensitive software. Clipboard history can contain passwords, recovery codes, API tokens, personal messages, addresses, commands, screenshots, photos, and other private data.
 
 Current mitigations:
 
@@ -26,18 +26,21 @@ Current mitigations:
 - Unique session mode clears persisted history at applet startup.
 - Sensitive-content filtering is enabled by default for common passwords, API keys, private keys, tokens, OTPs, and recovery phrase patterns.
 - Oversized text entries are skipped by default.
+- Image clipboard storage is limited to PNG, JPEG, WebP, and GIF MIME types.
+- Image clipboard payloads are limited to 25 MiB by default.
+- Image clipboard entries are encrypted at rest with the same history encryption layer.
 
 Current gaps:
 
-- Clipboard capture over Wayland data-control is not implemented yet.
-- Click-to-copy back to the clipboard is not implemented yet.
+- Native Wayland data-control clipboard capture is not implemented yet; the current backend uses `wl-paste` / `wl-copy`.
 - Per-application ignore rules are not implemented yet.
 - The sensitive-content filter is heuristic and can have both false positives and false negatives.
+- Image payloads can contain sensitive visual data such as screenshots, QR codes, documents, and photos.
 - The OS keyring must be available; if it is unavailable, encrypted history load/save will fail rather than silently falling back to plaintext.
 
 ## Safe testing guidance
 
-Until real clipboard integration is reviewed, test with non-sensitive text only.
+Until real COSMIC runtime testing is complete, test with non-sensitive text and non-sensitive images only.
 
 Do not copy the following while testing development builds:
 
@@ -47,6 +50,8 @@ Do not copy the following while testing development builds:
 - SSH keys
 - Recovery phrases
 - Personal documents
+- Private screenshots
+- QR codes containing secrets
 
 ## Reporting vulnerabilities
 
