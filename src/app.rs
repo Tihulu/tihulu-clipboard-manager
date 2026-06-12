@@ -3,13 +3,15 @@
 use crate::clipboard;
 use crate::config::Config;
 use crate::fl;
-use crate::model::ClipboardEntry;
+use crate::model::{ClipboardEntry, human_size};
 use crate::storage::{AddContentResult, ClipboardStore};
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
 use cosmic::iced::{window::Id, Alignment, Length, Limits, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget;
+
+const PREVIEW_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Default)]
 pub struct AppModel {
@@ -321,15 +323,25 @@ fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
     ])
     .spacing(6);
 
-    let body: Element<'_, Message> = if let Some((mime, bytes)) = entry.image() {
-        let thumbnail = widget::image(widget::image::Handle::from_bytes(bytes))
-            .width(Length::Fixed(86.0))
-            .height(Length::Fixed(72.0));
+    let body: Element<'_, Message> = if let Some((mime, size_bytes)) = entry.image_info() {
+        let preview: Element<'_, Message> = if size_bytes <= PREVIEW_MAX_BYTES {
+            if let Some((_, bytes)) = entry.image() {
+                widget::image(widget::image::Handle::from_bytes(bytes))
+                    .width(Length::Fixed(86.0))
+                    .height(Length::Fixed(72.0))
+                    .into()
+            } else {
+                widget::text(fl!("image-preview-unavailable")).into()
+            }
+        } else {
+            widget::text(fl!("image-preview-too-large")).into()
+        };
+
         widget::row::with_children(vec![
-            widget::container(thumbnail).padding(4).width(Length::Fixed(96.0)).into(),
+            widget::container(preview).padding(4).width(Length::Fixed(96.0)).into(),
             widget::column::with_children(vec![
                 widget::text(format!("{} {mime}", fl!("image-entry"))).into(),
-                widget::text(entry.preview()).into(),
+                widget::text(human_size(size_bytes)).into(),
                 actions.into(),
             ])
             .spacing(5)
