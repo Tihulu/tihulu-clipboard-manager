@@ -454,13 +454,21 @@ fn header_row() -> Element<'static, Message> {
 }
 
 fn status_row(config: &Config) -> Element<'static, Message> {
-    widget::row::with_children(vec![
-        badge(fl!("badge-encrypted"), config.encrypt_history),
-        badge(fl!("badge-images"), config.image_clipboard),
-        badge(fl!("badge-sensitive"), config.sensitive_filter),
-        badge(fl!("badge-incognito"), config.private_mode),
+    widget::column::with_children(vec![
+        widget::row::with_children(vec![
+            badge(fl!("badge-encrypted"), config.encrypt_history),
+            badge(fl!("badge-images"), config.image_clipboard),
+        ])
+        .spacing(10)
+        .into(),
+        widget::row::with_children(vec![
+            badge(fl!("badge-sensitive"), config.sensitive_filter),
+            badge(fl!("badge-incognito"), config.private_mode),
+        ])
+        .spacing(10)
+        .into(),
     ])
-    .spacing(10)
+    .spacing(8)
     .into()
 }
 
