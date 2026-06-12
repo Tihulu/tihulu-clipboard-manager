@@ -1,5 +1,5 @@
 app-title = Tihulu Clipboard Manager
-app-subtitle = Local, encrypted clipboard history
+app-subtitle = Secure, local, encrypted clipboard history
 clear-all = Clear All
 erase-all = Erase All
 clear-unpinned = Clear Unpinned
