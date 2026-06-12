@@ -62,9 +62,7 @@ impl Default for Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum Payload {
-    Text {
-        text: String,
-    },
+    Text { text: String },
     Image {
         mime: String,
         bytes_b64: String,
@@ -370,6 +368,21 @@ fn read_image() -> io::Result<Option<(String, Vec<u8>)>> {
 }
 
 fn read_clipboard_mime(mime: &str, no_newline: bool) -> io::Result<Option<Vec<u8>>> {
+    if is_wayland_session()
+        && command_exists("wl-paste")
+        && let Some(bytes) = read_wl_clipboard_mime(mime, no_newline)?
+    {
+        return Ok(Some(bytes));
+    }
+
+    if command_exists("xclip") {
+        return read_xclip_clipboard_mime(mime, no_newline);
+    }
+
+    Ok(None)
+}
+
+fn read_wl_clipboard_mime(mime: &str, no_newline: bool) -> io::Result<Option<Vec<u8>>> {
     let mut command = Command::new("wl-paste");
     if no_newline {
         command.arg("--no-newline");
@@ -383,22 +396,100 @@ fn read_clipboard_mime(mime: &str, no_newline: bool) -> io::Result<Option<Vec<u8
     }
 }
 
+fn read_xclip_clipboard_mime(mime: &str, no_newline: bool) -> io::Result<Option<Vec<u8>>> {
+    let output = Command::new("xclip")
+        .args(["-selection", "clipboard", "-out", "-target", xclip_target(mime)])
+        .output()?;
+
+    if !output.status.success() || output.stdout.is_empty() {
+        return Ok(None);
+    }
+
+    let mut bytes = output.stdout;
+    if no_newline {
+        while matches!(bytes.last(), Some(b'\n' | b'\r')) {
+            bytes.pop();
+        }
+    }
+
+    Ok(Some(bytes))
+}
+
 fn write_clipboard(mime: &str, bytes: Vec<u8>) -> io::Result<()> {
+    if is_wayland_session() && command_exists("wl-copy") {
+        return write_wl_clipboard(mime, bytes);
+    }
+
+    if command_exists("xclip") {
+        return write_xclip_clipboard(mime, bytes);
+    }
+
+    if command_exists("wl-copy") {
+        return write_wl_clipboard(mime, bytes);
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "no supported clipboard backend found; install xclip on X11 or wl-clipboard on Wayland",
+    ))
+}
+
+fn write_wl_clipboard(mime: &str, bytes: Vec<u8>) -> io::Result<()> {
     let mut child = Command::new("wl-copy")
         .args(["--type", mime])
         .stdin(Stdio::piped())
         .spawn()?;
-    let Some(mut stdin) = child.stdin.take() else {
-        return Err(io::Error::other("failed to open wl-copy stdin"));
-    };
-    stdin.write_all(&bytes)?;
-    drop(stdin);
+    write_child_stdin(&mut child, &bytes)?;
     let status = child.wait()?;
     if status.success() {
         Ok(())
     } else {
         Err(io::Error::other("wl-copy failed"))
     }
+}
+
+fn write_xclip_clipboard(mime: &str, bytes: Vec<u8>) -> io::Result<()> {
+    let mut child = Command::new("xclip")
+        .args(["-selection", "clipboard", "-in", "-target", xclip_target(mime)])
+        .stdin(Stdio::piped())
+        .spawn()?;
+    write_child_stdin(&mut child, &bytes)?;
+    let status = child.wait()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other("xclip failed"))
+    }
+}
+
+fn write_child_stdin(child: &mut std::process::Child, bytes: &[u8]) -> io::Result<()> {
+    let Some(mut stdin) = child.stdin.take() else {
+        return Err(io::Error::other("failed to open clipboard backend stdin"));
+    };
+    stdin.write_all(bytes)?;
+    drop(stdin);
+    Ok(())
+}
+
+fn xclip_target(mime: &str) -> &str {
+    if mime == "text/plain" {
+        "UTF8_STRING"
+    } else {
+        mime
+    }
+}
+
+fn is_wayland_session() -> bool {
+    env::var("XDG_SESSION_TYPE").is_ok_and(|session| session.eq_ignore_ascii_case("wayland"))
+        || env::var_os("WAYLAND_DISPLAY").is_some()
+}
+
+fn command_exists(name: &str) -> bool {
+    Command::new("sh")
+        .arg("-c")
+        .arg(format!("command -v {name} >/dev/null 2>&1"))
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 fn copy_entry(store: &Store, id: u64) -> io::Result<()> {
