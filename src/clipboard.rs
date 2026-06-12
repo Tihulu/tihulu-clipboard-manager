@@ -92,7 +92,7 @@ async fn write_clipboard(mime: &str, bytes: Vec<u8>) -> Result<(), String> {
 }
 
 async fn read_text_clipboard() -> io::Result<Option<String>> {
-    let Some(bytes) = read_clipboard_mime("text/plain").await? else {
+    let Some(bytes) = read_clipboard_mime("text/plain", true).await? else {
         return Ok(None);
     };
 
@@ -106,7 +106,7 @@ async fn read_text_clipboard() -> io::Result<Option<String>> {
 
 async fn read_image_clipboard() -> io::Result<Option<(String, Vec<u8>)>> {
     for mime in IMAGE_MIME_TYPES {
-        if let Some(bytes) = read_clipboard_mime(mime).await? {
+        if let Some(bytes) = read_clipboard_mime(mime, false).await? {
             if !bytes.is_empty() {
                 return Ok(Some(((*mime).to_string(), bytes)));
             }
@@ -116,15 +116,16 @@ async fn read_image_clipboard() -> io::Result<Option<(String, Vec<u8>)>> {
     Ok(None)
 }
 
-async fn read_clipboard_mime(mime: &str) -> io::Result<Option<Vec<u8>>> {
-    let output = timeout(
-        COMMAND_TIMEOUT,
-        Command::new("wl-paste")
-            .args(["--no-newline", "--type", mime])
-            .output(),
-    )
-    .await
-    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "wl-paste timed out"))??;
+async fn read_clipboard_mime(mime: &str, no_newline: bool) -> io::Result<Option<Vec<u8>>> {
+    let mut command = Command::new("wl-paste");
+    if no_newline {
+        command.arg("--no-newline");
+    }
+    command.args(["--type", mime]);
+
+    let output = timeout(COMMAND_TIMEOUT, command.output())
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "wl-paste timed out"))??;
 
     if !output.status.success() || output.stdout.is_empty() {
         return Ok(None);
