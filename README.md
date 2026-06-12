@@ -4,6 +4,38 @@ A security-first COSMIC panel clipboard manager applet for Pop!_OS / COSMIC.
 
 Tihulu Clipboard Manager focuses on privacy, clear history controls, encrypted local storage, and text/image clipboard history.
 
+## Quick install from GitHub
+
+The quick installer clones the repository, installs common Pop!_OS/Ubuntu build dependencies, installs Rust/`just` if needed, runs `cargo check` and `cargo test`, builds the release binary, and installs the applet under `/usr`.
+
+Review the script first:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/quick-install.sh -o /tmp/tihulu-quick-install.sh
+less /tmp/tihulu-quick-install.sh
+bash /tmp/tihulu-quick-install.sh
+```
+
+One-line install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/quick-install.sh | bash
+```
+
+Optional environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BRANCH` | `main` | Git branch to install from |
+| `PREFIX` | `/usr` | Install prefix passed to `just install` |
+| `KEEP_BUILD_DIR` | `0` | Set to `1` to keep the temporary build directory |
+
+Example:
+
+```bash
+BRANCH=main PREFIX=/usr/local KEEP_BUILD_DIR=1 bash /tmp/tihulu-quick-install.sh
+```
+
 ## Current status
 
 The project is in active development. The security storage layer, popup actions, text/image clipboard watcher, image size switch, and click-to-copy path are implemented in the scaffold.
