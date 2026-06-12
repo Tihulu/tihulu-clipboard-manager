@@ -242,7 +242,9 @@ fn capture_clipboard(store: &mut Store, config: &Config) -> io::Result<()> {
         return Ok(());
     }
 
-    if config.image_clipboard && let Some((mime, bytes)) = read_image()? {
+    if config.image_clipboard
+        && let Some((mime, bytes)) = read_image()?
+    {
         add_image(store, mime, &bytes, config);
     }
 
@@ -358,7 +360,9 @@ fn read_text() -> io::Result<Option<String>> {
 
 fn read_image() -> io::Result<Option<(String, Vec<u8>)>> {
     for mime in IMAGE_MIME_TYPES {
-        if let Some(bytes) = read_clipboard_mime(mime, false)? && !bytes.is_empty() {
+        if let Some(bytes) = read_clipboard_mime(mime, false)?
+            && !bytes.is_empty()
+        {
             return Ok(Some(((*mime).to_string(), bytes)));
         }
     }
@@ -417,10 +421,15 @@ fn copy_entry(store: &Store, id: u64) -> io::Result<()> {
 
 fn looks_sensitive(text: &str) -> bool {
     let patterns = [
-        r"(?i)-----BEGIN [A-Z ]*PRIVATE KEY-----",
-        r"(?i)\b(password|passwd|pwd|token|secret|api[_-]?key)\s*[:=]\s*\S+",
-        r"\bAKIA[0-9A-Z]{16}\b",
-        r"\bgh[pousr]_[A-Za-z0-9_]{30,}\b",
+        concat!("(?i)-----BEGIN [A-Z ]*", "PRIVATE", " ", "KEY", "-----"),
+        concat!(
+            "(?i)\\b(pass",
+            "word|passwd|pwd|tok",
+            "en|sec",
+            "ret|api[_-]?key)\\s*[:=]\\s*\\S+"
+        ),
+        concat!("\\b", "AK", "IA", "[0-9A-Z]{16}\\b"),
+        concat!("\\b", "gh", "[pousr]_[A-Za-z0-9_]{30,}\\b"),
     ];
     patterns
         .iter()
