@@ -1,30 +1,38 @@
 # Tihulu Clipboard Manager
 
-A COSMIC panel clipboard manager applet for Pop!_OS / COSMIC.
+A security-first COSMIC panel clipboard manager applet for Pop!_OS / COSMIC.
 
-The first design goal is simple: **Erase All must be visible in the main popup** so clipboard history does not accumulate silently.
+The main design goal is simple: **Erase All must be visible in the main popup** so clipboard history does not accumulate silently.
 
-## Planned features
+## Security-first feature set
 
 - Visible **Clear All / Erase All** button in the main popup
 - Confirmation before destructive history deletion
+- Real Erase All removes plaintext and encrypted persisted history files
+- Encrypted history at rest by default
+- OS keyring-backed random encryption key
+- `ChaCha20Poly1305` authenticated encryption for history storage
+- Private mode to stop storing new clipboard items
+- Unique session mode to clear persisted history at applet startup
+- Maximum history size
+- Maximum history age, default 30 days
+- Sensitive-content filter for common passwords, API keys, private keys, tokens, OTPs, and recovery phrases
+- Oversized text entry protection
 - Clear unpinned items while keeping pinned entries
 - Delete individual entries
 - Pin / unpin entries
-- Search history
-- Text clipboard history first
-- Image clipboard support later
-- Privacy filters for passwords, tokens, and ignored apps
 
 ## Current status
 
-This is the initial applet scaffold. The UI and local history model are started, including the Clear All flow.
+The security storage layer and popup actions are implemented in the scaffold.
 
-Still needed:
+Still needed before daily use:
 
 - Connect the real Wayland data-control clipboard watcher
 - Implement click-to-copy by setting the Wayland clipboard
 - Test against the current COSMIC/libcosmic API on Pop!_OS
+- Add per-application ignore rules if COSMIC/Wayland exposes source app metadata
+- Run `cargo check`, `cargo fmt`, `cargo clippy`, and `cargo audit` on a COSMIC development machine
 
 ## Build locally
 
@@ -42,24 +50,13 @@ just build-release
 sudo just install
 ```
 
-## Create the GitHub repository
+## Security notes
 
-The expected repository is:
+Clipboard managers are sensitive software. Treat this applet like a password-adjacent tool.
 
-```text
-https://github.com/Tihulu/tihulu-clipboard-manager
-```
+Do not test development builds with real passwords, recovery phrases, API keys, SSH keys, or personal documents until the Wayland watcher and click-to-copy code has had a second security review.
 
-Create it with GitHub CLI:
-
-```bash
-gh repo create Tihulu/tihulu-clipboard-manager \
-  --public \
-  --description "COSMIC panel clipboard manager with visible erase-all controls" \
-  --source . \
-  --remote origin \
-  --push
-```
+Read [`SECURITY.md`](SECURITY.md) before testing.
 
 ## App identity
 
