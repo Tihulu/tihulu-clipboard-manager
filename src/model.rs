@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -38,6 +38,15 @@ impl ClipboardEntry {
         }
     }
 
+    pub fn image_info(&self) -> Option<(&str, usize)> {
+        match &self.payload {
+            ClipboardPayload::Text(_) => None,
+            ClipboardPayload::Image {
+                mime, size_bytes, ..
+            } => Some((mime.as_str(), *size_bytes)),
+        }
+    }
+
     pub fn image(&self) -> Option<(&str, Vec<u8>)> {
         match &self.payload {
             ClipboardPayload::Text(_) => None,
@@ -56,7 +65,7 @@ pub fn encode_image_payload(mime: impl Into<String>, bytes: &[u8]) -> ClipboardP
     }
 }
 
-fn human_size(bytes: usize) -> String {
+pub fn human_size(bytes: usize) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = 1024.0 * 1024.0;
 
@@ -71,7 +80,7 @@ fn human_size(bytes: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_image_payload, ClipboardEntry, ClipboardPayload};
+    use super::{ClipboardEntry, ClipboardPayload, encode_image_payload};
 
     #[test]
     fn image_payload_roundtrips() {
@@ -82,6 +91,12 @@ mod tests {
             pinned: false,
             created_at_unix: 0,
         };
+
+        let Some((mime, size_bytes)) = entry.image_info() else {
+            panic!("expected image info");
+        };
+        assert_eq!(mime, "image/png");
+        assert_eq!(size_bytes, 4);
 
         let Some((mime, bytes)) = entry.image() else {
             panic!("expected image payload");
@@ -103,5 +118,6 @@ mod tests {
 
         assert_eq!(entry.text(), Some("hello"));
         assert!(entry.image().is_none());
+        assert!(entry.image_info().is_none());
     }
 }
