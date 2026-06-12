@@ -32,6 +32,7 @@ class ClipboardIndicator extends PanelMenu.Button {
         this._confirmClearAll = false;
         this._timeoutId = 0;
         this._lastError = null;
+        this._stateFingerprint = '';
 
         this.add_child(new St.Icon({
             icon_name: 'edit-paste-symbolic',
@@ -83,17 +84,37 @@ class ClipboardIndicator extends PanelMenu.Button {
 
     _applyState(state) {
         if (!state) {
-            return;
+            return false;
         }
 
+        const entries = Array.isArray(state.entries) ? state.entries : [];
+        const config = state.config || {};
+        const fingerprint = JSON.stringify({entries, config});
+        const changed = fingerprint !== this._stateFingerprint || this._lastError !== null;
+
         this._lastError = null;
-        this._entries = Array.isArray(state.entries) ? state.entries : [];
-        this._config = state.config || {};
+        this._entries = entries;
+        this._config = config;
+        this._stateFingerprint = fingerprint;
+
+        return changed;
     }
 
     _refresh(command = 'state') {
-        this._applyState(this._runHelper([command]));
-        this._buildMenu();
+        const errorBefore = this._lastError;
+        const changed = this._applyState(this._runHelper([command]));
+
+        // The capture timer runs often. Rebuilding the menu while it is open makes
+        // GNOME Shell look like the applet is constantly refreshing and also breaks
+        // typing in the search field. Keep the current popup stable; new entries
+        // will appear on the next manual action or when the popup is reopened.
+        if (command === 'capture' && this.menu.isOpen) {
+            return;
+        }
+
+        if (changed || command !== 'capture' || this._lastError !== errorBefore) {
+            this._buildMenu();
+        }
     }
 
     _helperAction(args) {
