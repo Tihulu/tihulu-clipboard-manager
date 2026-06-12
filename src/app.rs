@@ -7,7 +7,7 @@ use crate::model::{ClipboardEntry, human_size};
 use crate::storage::{AddContentResult, ClipboardStore};
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
-use cosmic::iced::{window::Id, Alignment, Length, Limits, Subscription};
+use cosmic::iced::{Alignment, Length, Limits, Subscription, window::Id};
 use cosmic::prelude::*;
 use cosmic::widget;
 
@@ -61,11 +61,18 @@ impl cosmic::Application for AppModel {
 
     const APP_ID: &'static str = "io.github.tihulu.ClipboardManager";
 
-    fn core(&self) -> &cosmic::Core { &self.core }
+    fn core(&self) -> &cosmic::Core {
+        &self.core
+    }
 
-    fn core_mut(&mut self) -> &mut cosmic::Core { &mut self.core }
+    fn core_mut(&mut self) -> &mut cosmic::Core {
+        &mut self.core
+    }
 
-    fn init(core: cosmic::Core, _flags: Self::Flags) -> (Self, Task<cosmic::Action<Self::Message>>) {
+    fn init(
+        core: cosmic::Core,
+        _flags: Self::Flags,
+    ) -> (Self, Task<cosmic::Action<Self::Message>>) {
         let config = cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
             .map(|context| match Config::get_entry(&context) {
                 Ok(config) => config,
@@ -81,10 +88,20 @@ impl cosmic::Application for AppModel {
         store.prune(&config);
         let _ = store.save(&config);
 
-        (Self { core, config, store, ..Default::default() }, Task::none())
+        (
+            Self {
+                core,
+                config,
+                store,
+                ..Default::default()
+            },
+            Task::none(),
+        )
     }
 
-    fn on_close_requested(&self, id: Id) -> Option<Message> { Some(Message::PopupClosed(id)) }
+    fn on_close_requested(&self, id: Id) -> Option<Message> {
+        Some(Message::PopupClosed(id))
+    }
 
     fn view(&self) -> Element<'_, Self::Message> {
         widget::mouse_area(
@@ -107,19 +124,27 @@ impl cosmic::Application for AppModel {
     fn subscription(&self) -> Subscription<Self::Message> {
         Subscription::batch(vec![
             Subscription::run(|| cosmic::iced::stream::channel(32, clipboard::watch_clipboard)),
-            self.core().watch_config::<Config>(Self::APP_ID).map(|update| Message::UpdateConfig(update.config)),
+            self.core()
+                .watch_config::<Config>(Self::APP_ID)
+                .map(|update| Message::UpdateConfig(update.config)),
         ])
     }
 
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
         match message {
             Message::ClipboardChanged(text) => {
-                if matches!(self.store.add_text(text, &self.config), AddContentResult::Added) {
+                if matches!(
+                    self.store.add_text(text, &self.config),
+                    AddContentResult::Added
+                ) {
                     let _ = self.store.save(&self.config);
                 }
             }
             Message::ClipboardImageChanged { mime, bytes } => {
-                if matches!(self.store.add_image(mime, bytes.as_ref(), &self.config), AddContentResult::Added) {
+                if matches!(
+                    self.store.add_image(mime, bytes.as_ref(), &self.config),
+                    AddContentResult::Added
+                ) {
                     let _ = self.store.save(&self.config);
                 }
             }
@@ -149,29 +174,50 @@ impl cosmic::Application for AppModel {
             }
             Message::SetPrivateMode(value) => {
                 self.config.private_mode = value;
-                self.last_action = Some(if value { fl!("incognito-enabled") } else { fl!("incognito-disabled") });
+                self.last_action = Some(if value {
+                    fl!("incognito-enabled")
+                } else {
+                    fl!("incognito-disabled")
+                });
                 persist_config(&self.config);
             }
             Message::SetUniqueSession(value) => {
                 self.config.unique_session = value;
-                self.last_action = Some(if value { fl!("unique-session-enabled") } else { fl!("unique-session-disabled") });
+                self.last_action = Some(if value {
+                    fl!("unique-session-enabled")
+                } else {
+                    fl!("unique-session-disabled")
+                });
                 persist_config(&self.config);
             }
             Message::SetImageLimit(value) => {
                 self.config.limit_image_size = value;
-                self.last_action = Some(if value { fl!("image-limit-enabled") } else { fl!("image-limit-disabled") });
+                self.last_action = Some(if value {
+                    fl!("image-limit-enabled")
+                } else {
+                    fl!("image-limit-disabled")
+                });
                 persist_config(&self.config);
             }
             Message::CopyEntry(id) => {
                 if let Some(entry) = self.store.entries().iter().find(|entry| entry.id == id) {
                     if let Some(text) = entry.text() {
                         let text = text.to_string();
-                        return Task::perform(async move { clipboard::copy_text_to_clipboard(text).await }, |result| cosmic::Action::App(Message::EntryCopied(result)));
+                        return Task::perform(
+                            async move { clipboard::copy_text_to_clipboard(text).await },
+                            |result| cosmic::Action::App(Message::EntryCopied(result)),
+                        );
                     }
 
                     if let Some((mime, bytes)) = entry.image() {
                         let mime = mime.to_string();
-                        return Task::perform(async move { clipboard::copy_image_to_clipboard(mime, bytes.into_boxed_slice()).await }, |result| cosmic::Action::App(Message::EntryCopied(result)));
+                        return Task::perform(
+                            async move {
+                                clipboard::copy_image_to_clipboard(mime, bytes.into_boxed_slice())
+                                    .await
+                            },
+                            |result| cosmic::Action::App(Message::EntryCopied(result)),
+                        );
                     }
                 }
             }
@@ -225,7 +271,9 @@ impl cosmic::Application for AppModel {
         Task::none()
     }
 
-    fn style(&self) -> Option<cosmic::iced::theme::Style> { Some(cosmic::applet::style()) }
+    fn style(&self) -> Option<cosmic::iced::theme::Style> {
+        Some(cosmic::applet::style())
+    }
 }
 
 impl AppModel {
@@ -233,7 +281,12 @@ impl AppModel {
         if self.popup_kind == Some(kind) {
             self.popup_kind = None;
             self.confirm_clear_all = false;
-            return self.popup.take().map_or_else(Task::none, destroy_popup);
+
+            if let Some(id) = self.popup.take() {
+                return destroy_popup(id);
+            }
+
+            return Task::none();
         }
 
         let mut tasks = Vec::new();
@@ -312,7 +365,11 @@ impl AppModel {
 
         content = content
             .push(widget::divider::horizontal::light())
-            .push(widget::scrollable(list).height(Length::Fixed(610.0)).width(Length::Fill))
+            .push(
+                widget::scrollable(list)
+                    .height(Length::Fixed(610.0))
+                    .width(Length::Fill),
+            )
             .push(widget::divider::horizontal::light())
             .push(
                 widget::row::with_children(vec![
@@ -320,7 +377,12 @@ impl AppModel {
                         .on_press(Message::ClearUnpinned)
                         .into(),
                     widget::Space::new().width(Length::Fill).into(),
-                    widget::text(result_count_label(is_searching, entries.len(), self.store.entries().len())).into(),
+                    widget::text(result_count_label(
+                        is_searching,
+                        entries.len(),
+                        self.store.entries().len(),
+                    ))
+                    .into(),
                 ])
                 .align_y(Alignment::Center),
             );
@@ -368,7 +430,9 @@ fn header_row() -> Element<'static, Message> {
         .spacing(2)
         .into(),
         widget::Space::new().width(Length::Fill).into(),
-        widget::button::text(fl!("clear-all")).on_press(Message::RequestClearAll).into(),
+        widget::button::text(fl!("clear-all"))
+            .on_press(Message::RequestClearAll)
+            .into(),
     ])
     .align_y(Alignment::Center)
     .into()
@@ -385,23 +449,11 @@ fn status_row(config: &Config) -> Element<'static, Message> {
 }
 
 fn search_row(query: &str) -> Element<'_, Message> {
-    let search = widget::search_input(fl!("search-placeholder"), query)
+    widget::text_input::search_input(fl!("search-placeholder"), query)
         .on_input(Message::SearchChanged)
-        .width(Length::Fill);
-
-    if query.is_empty() {
-        search.into()
-    } else {
-        widget::row::with_children(vec![
-            search.into(),
-            widget::button::text(fl!("clear-search"))
-                .on_press(Message::ClearSearch)
-                .into(),
-        ])
-        .spacing(8)
-        .align_y(Alignment::Center)
+        .on_clear(Message::ClearSearch)
+        .width(Length::Fill)
         .into()
-    }
 }
 
 fn settings_switch_row(
@@ -423,8 +475,12 @@ fn confirm_clear_box() -> Element<'static, Message> {
         widget::column::with_children(vec![
             widget::text(fl!("clear-all-confirmation")).into(),
             widget::row::with_children(vec![
-                widget::button::text(fl!("cancel")).on_press(Message::CancelClearAll).into(),
-                widget::button::text(fl!("erase-all")).on_press(Message::ConfirmClearAll).into(),
+                widget::button::text(fl!("cancel"))
+                    .on_press(Message::CancelClearAll)
+                    .into(),
+                widget::button::text(fl!("erase-all"))
+                    .on_press(Message::ConfirmClearAll)
+                    .into(),
             ])
             .spacing(8)
             .into(),
@@ -439,9 +495,15 @@ fn confirm_clear_box() -> Element<'static, Message> {
 fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
     let pin_label = if entry.pinned { fl!("unpin") } else { fl!("pin") };
     let actions = widget::row::with_children(vec![
-        widget::button::text(fl!("copy")).on_press(Message::CopyEntry(entry.id)).into(),
-        widget::button::text(pin_label).on_press(Message::TogglePin(entry.id)).into(),
-        widget::button::text(fl!("delete")).on_press(Message::DeleteEntry(entry.id)).into(),
+        widget::button::text(fl!("copy"))
+            .on_press(Message::CopyEntry(entry.id))
+            .into(),
+        widget::button::text(pin_label)
+            .on_press(Message::TogglePin(entry.id))
+            .into(),
+        widget::button::text(fl!("delete"))
+            .on_press(Message::DeleteEntry(entry.id))
+            .into(),
     ])
     .spacing(14);
 
@@ -464,9 +526,13 @@ fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
                 .padding(6)
                 .width(Length::Fill)
                 .into(),
-            widget::text(format!("{} · {mime} · {}", fl!("image-entry"), human_size(size_bytes)))
-                .width(Length::Fill)
-                .into(),
+            widget::text(format!(
+                "{} · {mime} · {}",
+                fl!("image-entry"),
+                human_size(size_bytes)
+            ))
+            .width(Length::Fill)
+            .into(),
             actions.into(),
         ])
         .spacing(10)
@@ -487,7 +553,9 @@ fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
 
 fn badge(label: String, active: bool) -> Element<'static, Message> {
     let marker = if active { "●" } else { "○" };
-    widget::container(widget::text(format!("{marker} {label}"))).padding(6).into()
+    widget::container(widget::text(format!("{marker} {label}")))
+        .padding(6)
+        .into()
 }
 
 fn entry_matches_query(entry: &ClipboardEntry, query: &str) -> bool {
