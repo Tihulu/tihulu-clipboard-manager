@@ -125,14 +125,6 @@ fn run() -> io::Result<()> {
     let mut args = env::args().skip(1);
     let command = args.next().unwrap_or_else(|| "state".to_string());
     let mut config = load_config();
-
-    if config.unique_session && command == "capture" {
-        let store = Store::default();
-        save_store(&store, &config)?;
-        print_state(&store, &config)?;
-        return Ok(());
-    }
-
     let mut store = load_store(&config);
 
     match command.as_str() {
@@ -160,6 +152,7 @@ fn run() -> io::Result<()> {
         }
         "clear-all" => {
             store.entries.clear();
+            store.next_id = 1;
             save_store(&store, &config)?;
         }
         "clear-unpinned" => {
@@ -173,9 +166,20 @@ fn run() -> io::Result<()> {
             let value = args.next().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, "missing config value")
             })?;
+            let unique_session_was_enabled = config.unique_session;
             set_config_value(&mut config, &key, &value)?;
+            let unique_session_enabled = key == "uniqueSession"
+                && config.unique_session
+                && !unique_session_was_enabled;
             save_config(&config)?;
-            prune(&mut store, &config);
+
+            if unique_session_enabled {
+                store.entries.clear();
+                store.next_id = 1;
+            } else {
+                prune(&mut store, &config);
+            }
+
             save_store(&store, &config)?;
         }
         _ => {
