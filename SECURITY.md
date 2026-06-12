@@ -27,7 +27,8 @@ Current mitigations:
 - Sensitive-content filtering is enabled by default for common passwords, API keys, private keys, tokens, OTPs, and recovery phrase patterns.
 - Oversized text entries are skipped by default.
 - Image clipboard storage is limited to PNG, JPEG, WebP, and GIF MIME types.
-- Image clipboard payloads are limited to 25 MiB by default.
+- Image clipboard payloads are limited to 25 MiB by default in limited mode.
+- The main popup includes an image size switch for limited mode and no-size-cap mode.
 - Image clipboard entries are encrypted at rest with the same history encryption layer.
 
 Current gaps:
@@ -36,6 +37,7 @@ Current gaps:
 - Per-application ignore rules are not implemented yet.
 - The sensitive-content filter is heuristic and can have both false positives and false negatives.
 - Image payloads can contain sensitive visual data such as screenshots, QR codes, documents, and photos.
+- No-size-cap image mode can store very large visual payloads and should be used only when needed.
 - The OS keyring must be available; if it is unavailable, encrypted history load/save will fail rather than silently falling back to plaintext.
 
 ## Safe testing guidance
