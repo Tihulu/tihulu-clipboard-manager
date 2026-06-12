@@ -26,7 +26,7 @@ pub enum Message {
     TogglePopup,
     PopupClosed(Id),
     ClipboardChanged(String),
-    ClipboardImageChanged { mime: String, bytes: Vec<u8> },
+    ClipboardImageChanged { mime: String, bytes: Box<[u8]> },
     ClipboardBackendWarning(String),
     UpdateConfig(Config),
     CopyEntry(u64),
@@ -207,7 +207,7 @@ impl cosmic::Application for AppModel {
             }
             Message::ClipboardImageChanged { mime, bytes } => {
                 if matches!(
-                    self.store.add_image(mime, &bytes, &self.config),
+                    self.store.add_image(mime, bytes.as_ref(), &self.config),
                     AddContentResult::Added
                 ) {
                     self.backend_warning = None;
@@ -248,7 +248,9 @@ impl cosmic::Application for AppModel {
                     if let Some((mime, bytes)) = entry.image() {
                         let mime = mime.to_string();
                         return Task::perform(
-                            async move { clipboard::copy_image_to_clipboard(mime, bytes).await },
+                            async move {
+                                clipboard::copy_image_to_clipboard(mime, bytes.into_boxed_slice()).await
+                            },
                             |result| cosmic::Action::App(Message::EntryCopied(result)),
                         );
                     }
