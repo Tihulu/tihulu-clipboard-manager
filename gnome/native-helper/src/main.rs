@@ -62,7 +62,9 @@ impl Default for Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum Payload {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     Image {
         mime: String,
         bytes_b64: String,
@@ -398,7 +400,13 @@ fn read_wl_clipboard_mime(mime: &str, no_newline: bool) -> io::Result<Option<Vec
 
 fn read_xclip_clipboard_mime(mime: &str, no_newline: bool) -> io::Result<Option<Vec<u8>>> {
     let output = Command::new("xclip")
-        .args(["-selection", "clipboard", "-out", "-target", xclip_target(mime)])
+        .args([
+            "-selection",
+            "clipboard",
+            "-out",
+            "-target",
+            xclip_target(mime),
+        ])
         .output()?;
 
     if !output.status.success() || output.stdout.is_empty() {
@@ -450,7 +458,13 @@ fn write_wl_clipboard(mime: &str, bytes: Vec<u8>) -> io::Result<()> {
 
 fn write_xclip_clipboard(mime: &str, bytes: Vec<u8>) -> io::Result<()> {
     let mut child = Command::new("xclip")
-        .args(["-selection", "clipboard", "-in", "-target", xclip_target(mime)])
+        .args([
+            "-selection",
+            "clipboard",
+            "-in",
+            "-target",
+            xclip_target(mime),
+        ])
         .stdin(Stdio::piped())
         .spawn()?;
     write_child_stdin(&mut child, &bytes)?;
