@@ -1,12 +1,108 @@
 # Tihulu Clipboard Manager
 
-A security-first COSMIC panel clipboard manager applet for Pop!_OS / COSMIC.
+A security-first clipboard history project for COSMIC/Wayland and GNOME/Ubuntu.
 
-Tihulu Clipboard Manager focuses on privacy, clear history controls, encrypted local storage, and text/image clipboard history.
+Tihulu focuses on privacy, visible clear controls, encrypted local storage, and text/image clipboard history.
 
-## Quick install from GitHub
+## Which version should I install?
 
-The quick installer clones the repository, installs common Pop!_OS/Ubuntu build dependencies, installs Rust/`just` if needed, runs `cargo check` and `cargo test`, builds the release binary, and installs the applet under `/usr`.
+| Desktop/session | Recommended path | Notes |
+| --- | --- | --- |
+| GNOME on Ubuntu / Pop!_OS / Debian | GNOME/Ubuntu installer | Uses a GNOME Shell extension plus a `systemd --user` background service. Works on X11/Xorg with `xclip`; Wayland uses `wl-clipboard`. |
+| COSMIC / Wayland | COSMIC applet installer | Native COSMIC applet project. Uses `wl-paste`/`wl-copy` for the current backend. |
+| Other desktops | Not packaged yet | Manual testing only. |
+
+## GNOME / Ubuntu quick install
+
+Install dependencies first:
+
+```bash
+sudo apt update
+sudo apt install -y git cargo gnome-shell-extensions xclip wl-clipboard coreutils build-essential pkg-config libssl-dev
+```
+
+Install from GitHub:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/gnome/scripts/quick-install.sh | bash
+```
+
+On GNOME X11/Xorg, reload GNOME Shell after install:
+
+```text
+Alt + F2 → r → Enter
+```
+
+On GNOME Wayland, log out and log back in.
+
+The GNOME install creates:
+
+```text
+~/.local/share/gnome-shell/extensions/tihulu-clipboard-manager@tihulu.dev
+~/.local/bin/tihulu-gnome-clipboard-helper
+~/.config/systemd/user/tihulu-gnome-clipboard-daemon.service
+```
+
+Check the background service:
+
+```bash
+systemctl --user status tihulu-gnome-clipboard-daemon.service --no-pager
+```
+
+Follow logs:
+
+```bash
+journalctl --user -u tihulu-gnome-clipboard-daemon.service -f
+```
+
+Clean install / reset history:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/gnome/scripts/quick-install.sh -o /tmp/tihulu-gnome-install.sh
+RESET_HISTORY=1 bash /tmp/tihulu-gnome-install.sh
+```
+
+Uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/gnome/scripts/uninstall.sh | bash
+```
+
+Remove history too:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/gnome/scripts/uninstall.sh -o /tmp/tihulu-gnome-uninstall.sh
+REMOVE_HISTORY=1 bash /tmp/tihulu-gnome-uninstall.sh
+```
+
+GNOME docs:
+
+- [`gnome/README.md`](gnome/README.md)
+- [`gnome/RELEASE_NOTES.md`](gnome/RELEASE_NOTES.md)
+- [`gnome/CHECKS.md`](gnome/CHECKS.md)
+
+## GNOME release packaging
+
+GNOME release packages are built by:
+
+```text
+.github/workflows/gnome-ubuntu-release.yml
+```
+
+To create a GNOME release from a clean local clone:
+
+```bash
+git checkout main
+git pull
+git tag -a gnome-v2.3.0 -m "Tihulu GNOME Ubuntu v2.3.0"
+git push origin gnome-v2.3.0
+```
+
+The GitHub Actions workflow packages the GNOME extension, helper, service, install script, uninstall script, and docs into a zip release asset.
+
+## COSMIC / Wayland quick install
+
+The COSMIC quick installer clones the repository, installs common Pop!_OS/Ubuntu build dependencies, installs Rust/`just` if needed, runs checks, builds the release binary, and installs the applet.
 
 Review the script first:
 
@@ -38,9 +134,11 @@ BRANCH=main PREFIX=/usr/local KEEP_BUILD_DIR=1 bash /tmp/tihulu-quick-install.sh
 
 ## Current status
 
-The project is in active development. The security storage layer, popup actions, text/image clipboard watcher, image size switch, and click-to-copy path are implemented in the scaffold.
+The project is in active development.
 
-Before daily use, this still needs to be verified on a real COSMIC development machine with:
+The GNOME/Ubuntu path has a daemon-backed installer and has been tested locally on GNOME X11 during development. The COSMIC path still needs more validation on a real COSMIC development machine.
+
+Before daily use, verify the target build with:
 
 ```bash
 cargo check
@@ -52,75 +150,25 @@ cargo audit
 
 ## Features
 
-- Text clipboard watcher for COSMIC/Wayland via `wl-paste`
-- Image clipboard watcher for PNG, JPEG, WebP, and GIF payloads
-- Click-to-copy via `wl-copy`
-- Image click-to-copy while preserving the MIME type
-- Visible **Clear All / Erase All** button in the main popup
+- Text clipboard history
+- Image clipboard history for PNG, JPEG, WebP, and GIF payloads
+- Click-to-copy old entries
+- Image click-to-copy while preserving MIME type
+- Visible **Clear All / Erase All** controls
 - Confirmation before destructive history deletion
-- Real Erase All removes plaintext and encrypted persisted history files
 - Encrypted history at rest by default
-- OS keyring-backed random encryption key
 - `ChaCha20Poly1305` authenticated encryption for history storage
+- OS keyring/local key fallback depending on the target helper
 - Private mode to stop storing new clipboard items
-- Unique session mode to clear persisted history at applet startup
+- Unique session mode
 - Maximum history size
 - Maximum history age, default 30 days
 - Sensitive-content filter for common passwords, API keys, private keys, tokens, OTPs, and recovery phrases
 - Oversized text entry protection
-- Image clipboard size switch: limited mode defaults to 25 MiB, no-size-cap mode skips the image size check
+- Image clipboard size limit
 - Clear unpinned items while keeping pinned entries
 - Delete individual entries
 - Pin / unpin entries
-
-## Tihulu vs COSMIC Clipboard Manager
-
-This comparison is based on the current Tihulu implementation and the public `cosmic-utils/clipboard-manager` project.
-
-### General comparison
-
-| Topic | COSMIC Clipboard Manager | Tihulu Clipboard Manager |
-| --- | --- | --- |
-| Maturity | More mature, existing working applet | New project, active development |
-| Target | General clipboard history applet | Security-first clipboard history applet |
-| Clipboard watcher | Native Wayland/data-control backend | `wl-paste` backend for the first working version |
-| Click-to-copy | Native applet behavior | `wl-copy` backend |
-| Text clipboard | Supported | Supported |
-| Image clipboard | Supported through multi-content storage | Supported for PNG, JPEG, WebP, and GIF |
-| Native data-control | Yes | Planned later |
-| Runtime dependency | No extra `wl-clipboard` dependency expected | Requires `wl-clipboard` for the current backend |
-| Daily-use readiness | More ready today | Needs compile/runtime testing first |
-
-### Security and storage comparison
-
-| Topic | COSMIC Clipboard Manager | Tihulu Clipboard Manager |
-| --- | --- | --- |
-| Storage backend | SQLite | Encrypted JSON history file |
-| At-rest encryption | Not visible in the public code reviewed | Enabled by default |
-| Encryption algorithm | Not visible | `ChaCha20Poly1305` |
-| Encryption key storage | Not visible | OS keyring |
-| Text history on disk | Stored in app database | Stored inside encrypted history by default |
-| Image history on disk | Stored in app database | Stored inside encrypted history by default |
-| File permissions | No explicit app-level hardening noted in the reviewed storage path | Unix directory `0700`, file `0600` |
-| Private mode | Available | Available |
-| Unique session | Available | Available |
-| Max age | Default 30 days | Default 30 days |
-| Max entries | Default 500 | Default 200 |
-| Sensitive text filter | Not visible in the public code reviewed | Enabled by default |
-| Image MIME allowlist | Multi-MIME storage | PNG, JPEG, WebP, GIF only |
-| Image size control | Not the focus of reviewed comparison | Limited 25 MiB by default; no-size-cap mode available |
-| Clear behavior | Clear keeps favorites | Erase All removes all history; Clear Unpinned is separate |
-
-### Practical decision table
-
-| Use case | Better choice today | Why |
-| --- | --- | --- |
-| Stable daily use right now | COSMIC Clipboard Manager | It is more mature and already integrated natively |
-| Stronger privacy/storage design | Tihulu Clipboard Manager | Encryption, keyring, sensitive filter, and stricter erase behavior |
-| Native Wayland backend | COSMIC Clipboard Manager | Tihulu currently uses `wl-clipboard` as a practical first backend |
-| Clear all history with no favorites left behind | Tihulu Clipboard Manager | Erase All is designed to delete all entries |
-| Encrypted image clipboard history | Tihulu Clipboard Manager | Images are stored inside the encrypted history file by default |
-| Large image clipboard entries | Tihulu Clipboard Manager | 25 MiB limited mode by default, no-size-cap mode available |
 
 ## Image clipboard behavior
 
@@ -131,28 +179,27 @@ Tihulu supports image clipboard entries for:
 - `image/webp`
 - `image/gif`
 
-By default, image history is limited to 25 MiB per entry. The main popup includes an image size switch:
+By default, image history is limited to 25 MiB per entry. MIME allowlisting, private mode, duplicate detection, and encryption still apply.
 
-| Mode | Behavior |
-| --- | --- |
-| Limited: 25 MiB | Rejects images above 25 MiB |
-| No size cap | Skips the image size check |
+## Runtime dependencies
 
-MIME allowlisting, private mode, duplicate detection, and encryption still apply in both modes.
-
-## Runtime dependency
-
-The first working clipboard backend uses `wl-clipboard`:
+COSMIC/Wayland currently uses `wl-clipboard`:
 
 ```bash
 sudo apt install wl-clipboard
 ```
 
-It uses:
+GNOME X11/Xorg uses `xclip`:
 
-- `wl-paste` to watch text clipboard payloads
-- `wl-paste` to watch PNG, JPEG, WebP, and GIF clipboard payloads
-- `wl-copy` to restore/copy a selected history item
+```bash
+sudo apt install xclip
+```
+
+GNOME Wayland uses `wl-clipboard`:
+
+```bash
+sudo apt install wl-clipboard
+```
 
 ## Build locally
 
@@ -164,7 +211,7 @@ cargo test --all-targets --all-features
 just run
 ```
 
-Install system-wide for testing:
+Install system-wide for COSMIC testing:
 
 ```bash
 just build-release
@@ -175,7 +222,7 @@ sudo just install
 
 Clipboard managers are sensitive software. Treat this applet like a password-adjacent tool.
 
-Do not test development builds with real passwords, recovery phrases, API keys, SSH keys, personal documents, private screenshots, or QR codes containing secrets until the watcher and click-to-copy code has had a second security review on the target COSMIC system.
+Do not test development builds with real passwords, recovery phrases, API keys, SSH keys, personal documents, private screenshots, or QR codes containing secrets until the watcher and click-to-copy code has had a second security review on the target desktop/session.
 
 No-size-cap image mode can store very large screenshots or photos. Keep limited mode enabled unless you specifically need larger image clipboard entries.
 
@@ -183,15 +230,17 @@ Read [`SECURITY.md`](SECURITY.md) before testing.
 
 ## Roadmap
 
+- Dedicated native GNOME daemon command for release builds
 - Native Wayland data-control backend
-- Per-application ignore rules if COSMIC/Wayland exposes source app metadata
+- Per-application ignore rules if the desktop/session exposes source app metadata
 - Persistent settings UI for security and image options
 - Native COSMIC styling pass
-- Release packaging after `cargo check`, tests, clippy, audit, and runtime validation pass
+- Release packaging after CI and runtime validation pass
 
 ## App identity
 
 - Applet name: **Tihulu Clipboard Manager**
-- Binary name: `tihulu-clipboard-manager`
+- COSMIC binary name: `tihulu-clipboard-manager`
+- GNOME helper binary name: `tihulu-gnome-clipboard-helper`
 - App ID: `io.github.tihulu.ClipboardManager`
 - License: GPL-3.0-or-later
