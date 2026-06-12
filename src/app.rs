@@ -246,10 +246,10 @@ impl AppModel {
 
         settings.positioner.size_limits = match kind {
             PopupKind::History => Limits::NONE
-                .min_width(520.0)
-                .max_width(640.0)
+                .min_width(640.0)
+                .max_width(780.0)
                 .min_height(420.0)
-                .max_height(760.0),
+                .max_height(820.0),
             PopupKind::Settings => Limits::NONE
                 .min_width(340.0)
                 .max_width(380.0)
@@ -263,7 +263,7 @@ impl AppModel {
 
     fn history_popup(&self) -> Element<'_, Message> {
         let mut list = widget::column::with_capacity(self.store.entries().len().max(1))
-            .spacing(10)
+            .spacing(12)
             .width(Length::Fill);
 
         if self.store.entries().is_empty() {
@@ -276,7 +276,7 @@ impl AppModel {
 
         let mut content = widget::column::with_capacity(7)
             .spacing(12)
-            .padding(14)
+            .padding(16)
             .push(header_row())
             .push(status_row(&self.config));
 
@@ -290,7 +290,7 @@ impl AppModel {
 
         content = content
             .push(widget::divider::horizontal::light())
-            .push(widget::scrollable(list).height(Length::Fixed(520.0)).width(Length::Fill))
+            .push(widget::scrollable(list).height(Length::Fixed(610.0)).width(Length::Fill))
             .push(widget::divider::horizontal::light())
             .push(
                 widget::row::with_children(vec![
@@ -401,14 +401,14 @@ fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
         widget::button::text(pin_label).on_press(Message::TogglePin(entry.id)).into(),
         widget::button::text(fl!("delete")).on_press(Message::DeleteEntry(entry.id)).into(),
     ])
-    .spacing(10);
+    .spacing(14);
 
     let body: Element<'_, Message> = if let Some((mime, size_bytes)) = entry.image_info() {
         let preview: Element<'_, Message> = if size_bytes <= PREVIEW_MAX_BYTES {
             if let Some((_, bytes)) = entry.image() {
                 widget::image(widget::image::Handle::from_bytes(bytes))
-                    .width(Length::Fixed(180.0))
-                    .height(Length::Fixed(120.0))
+                    .width(Length::Fill)
+                    .height(Length::Fixed(260.0))
                     .into()
             } else {
                 widget::text(fl!("image-preview-unavailable")).into()
@@ -417,22 +417,18 @@ fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
             widget::text(fl!("image-preview-too-large")).into()
         };
 
-        widget::row::with_children(vec![
+        widget::column::with_children(vec![
             widget::container(preview)
                 .padding(6)
-                .width(Length::Fixed(194.0))
+                .width(Length::Fill)
                 .into(),
-            widget::column::with_children(vec![
-                widget::text(format!("{} {mime}", fl!("image-entry"))).into(),
-                widget::text(human_size(size_bytes)).into(),
-                actions.into(),
-            ])
-            .spacing(8)
-            .width(Length::Fill)
-            .into(),
+            widget::text(format!("{} · {mime} · {}", fl!("image-entry"), human_size(size_bytes)))
+                .width(Length::Fill)
+                .into(),
+            actions.into(),
         ])
-        .spacing(14)
-        .align_y(Alignment::Center)
+        .spacing(10)
+        .width(Length::Fill)
         .into()
     } else {
         widget::column::with_children(vec![
