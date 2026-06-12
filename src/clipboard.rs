@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::app::Message;
-use cosmic::iced::futures::{channel::mpsc::Sender, SinkExt};
+use futures::{channel::mpsc::Sender, SinkExt};
 use std::{io, process::Stdio, time::Duration};
 use tokio::{
     io::AsyncWriteExt,
