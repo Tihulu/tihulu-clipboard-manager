@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::clipboard;
 use crate::config::Config;
 use crate::fl;
+use crate::model::ClipboardPayload;
 use crate::storage::ClipboardStore;
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
@@ -16,6 +18,8 @@ pub struct AppModel {
     config: Config,
     store: ClipboardStore,
     confirm_clear_all: bool,
+    backend_warning: Option<String>,
+    last_action: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -23,8 +27,10 @@ pub enum Message {
     TogglePopup,
     PopupClosed(Id),
     ClipboardChanged(String),
+    ClipboardBackendWarning(String),
     UpdateConfig(Config),
     CopyEntry(u64),
+    EntryCopied(Result<(), String>),
     DeleteEntry(u64),
     TogglePin(u64),
     RequestClearAll,
@@ -110,6 +116,14 @@ impl cosmic::Application for AppModel {
             content = content.add(widget::text(fl!("history-encrypted")));
         }
 
+        if let Some(warning) = &self.backend_warning {
+            content = content.add(widget::text(format!("{} {warning}", fl!("backend-warning"))));
+        }
+
+        if let Some(action) = &self.last_action {
+            content = content.add(widget::text(action.clone()));
+        }
+
         if self.confirm_clear_all {
             content = content.add(
                 widget::container(
@@ -172,12 +186,7 @@ impl cosmic::Application for AppModel {
 
     fn subscription(&self) -> Subscription<Self::Message> {
         Subscription::batch(vec![
-            Subscription::run(|| {
-                cosmic::iced::stream::channel(4, move |_channel: futures::channel::mpsc::Sender<_>| async move {
-                    // TODO: Replace this placeholder with Wayland data-control clipboard events.
-                    futures::future::pending().await
-                })
-            }),
+            Subscription::run(|| cosmic::iced::stream::channel(32, clipboard::watch_text_clipboard)),
             self.core().watch_config::<Config>(Self::APP_ID).map(|update| {
                 Message::UpdateConfig(update.config)
             }),
@@ -189,8 +198,12 @@ impl cosmic::Application for AppModel {
             Message::ClipboardChanged(text) => {
                 let result = self.store.add_text(text, &self.config);
                 if matches!(result, crate::storage::AddTextResult::Added) {
+                    self.backend_warning = None;
                     let _ = self.store.save(&self.config);
                 }
+            }
+            Message::ClipboardBackendWarning(warning) => {
+                self.backend_warning = Some(warning);
             }
             Message::UpdateConfig(config) => {
                 let encryption_changed = self.config.encrypt_history != config.encrypt_history;
@@ -210,8 +223,21 @@ impl cosmic::Application for AppModel {
 
                 let _ = self.store.save(&self.config);
             }
-            Message::CopyEntry(_id) => {
-                // TODO: Set the Wayland clipboard to this entry's payload.
+            Message::CopyEntry(id) => {
+                if let Some(entry) = self.store.entries().iter().find(|entry| entry.id == id) {
+                    let ClipboardPayload::Text(text) = &entry.payload;
+                    let text = text.clone();
+                    return Task::perform(
+                        async move { clipboard::copy_text_to_clipboard(text).await },
+                        |result| cosmic::Action::App(Message::EntryCopied(result)),
+                    );
+                }
+            }
+            Message::EntryCopied(result) => {
+                self.last_action = Some(match result {
+                    Ok(()) => fl!("copied"),
+                    Err(error) => format!("{} {error}", fl!("copy-failed")),
+                });
             }
             Message::DeleteEntry(id) => {
                 self.store.delete(id);
