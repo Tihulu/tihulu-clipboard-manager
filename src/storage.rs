@@ -256,6 +256,9 @@ impl ClipboardStore {
         let nonce_bytes = B64
             .decode(file.nonce_b64)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let nonce: [u8; 12] = nonce_bytes
+            .try_into()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid nonce length"))?;
         let ciphertext = B64
             .decode(file.ciphertext_b64)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -263,7 +266,7 @@ impl ClipboardStore {
         let key = get_or_create_history_key()?;
         let cipher = ChaCha20Poly1305::new(Key::from_slice(&key[..]));
         let plaintext = cipher
-            .decrypt(Nonce::from_slice(&nonce_bytes), ciphertext.as_ref())
+            .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "failed to decrypt history"))?;
 
         serde_json::from_slice(&plaintext)
