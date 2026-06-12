@@ -3,8 +3,7 @@
 use crate::clipboard;
 use crate::config::Config;
 use crate::fl;
-use crate::model::ClipboardPayload;
-use crate::storage::ClipboardStore;
+use crate::storage::{AddContentResult, ClipboardStore};
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
 use cosmic::iced::{window::Id, Alignment, Length, Limits, Subscription};
@@ -27,6 +26,7 @@ pub enum Message {
     TogglePopup,
     PopupClosed(Id),
     ClipboardChanged(String),
+    ClipboardImageChanged { mime: String, bytes: Vec<u8> },
     ClipboardBackendWarning(String),
     UpdateConfig(Config),
     CopyEntry(u64),
@@ -116,6 +116,10 @@ impl cosmic::Application for AppModel {
             content = content.add(widget::text(fl!("history-encrypted")));
         }
 
+        if self.config.image_clipboard {
+            content = content.add(widget::text(fl!("image-clipboard-enabled")));
+        }
+
         if let Some(warning) = &self.backend_warning {
             content = content.add(widget::text(format!("{} {warning}", fl!("backend-warning"))));
         }
@@ -186,9 +190,7 @@ impl cosmic::Application for AppModel {
 
     fn subscription(&self) -> Subscription<Self::Message> {
         Subscription::batch(vec![
-            Subscription::run(|| {
-                cosmic::iced::stream::channel(32, clipboard::watch_text_clipboard)
-            }),
+            Subscription::run(|| cosmic::iced::stream::channel(32, clipboard::watch_clipboard)),
             self.core().watch_config::<Config>(Self::APP_ID).map(|update| {
                 Message::UpdateConfig(update.config)
             }),
@@ -198,8 +200,16 @@ impl cosmic::Application for AppModel {
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
         match message {
             Message::ClipboardChanged(text) => {
-                let result = self.store.add_text(text, &self.config);
-                if matches!(result, crate::storage::AddTextResult::Added) {
+                if matches!(self.store.add_text(text, &self.config), AddContentResult::Added) {
+                    self.backend_warning = None;
+                    let _ = self.store.save(&self.config);
+                }
+            }
+            Message::ClipboardImageChanged { mime, bytes } => {
+                if matches!(
+                    self.store.add_image(mime, &bytes, &self.config),
+                    AddContentResult::Added
+                ) {
                     self.backend_warning = None;
                     let _ = self.store.save(&self.config);
                 }
@@ -227,12 +237,21 @@ impl cosmic::Application for AppModel {
             }
             Message::CopyEntry(id) => {
                 if let Some(entry) = self.store.entries().iter().find(|entry| entry.id == id) {
-                    let ClipboardPayload::Text(text) = &entry.payload;
-                    let text = text.clone();
-                    return Task::perform(
-                        async move { clipboard::copy_text_to_clipboard(text).await },
-                        |result| cosmic::Action::App(Message::EntryCopied(result)),
-                    );
+                    if let Some(text) = entry.text() {
+                        let text = text.to_string();
+                        return Task::perform(
+                            async move { clipboard::copy_text_to_clipboard(text).await },
+                            |result| cosmic::Action::App(Message::EntryCopied(result)),
+                        );
+                    }
+
+                    if let Some((mime, bytes)) = entry.image() {
+                        let mime = mime.to_string();
+                        return Task::perform(
+                            async move { clipboard::copy_image_to_clipboard(mime, bytes).await },
+                            |result| cosmic::Action::App(Message::EntryCopied(result)),
+                        );
+                    }
                 }
             }
             Message::EntryCopied(result) => {
