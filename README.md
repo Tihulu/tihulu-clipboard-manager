@@ -2,7 +2,7 @@
 
 A security-first COSMIC panel clipboard manager applet for Pop!_OS / COSMIC.
 
-The main design goal is simple: **Erase All must be visible in the main popup** so clipboard history does not accumulate silently.
+Tihulu Clipboard Manager focuses on privacy, clear history controls, and encrypted local storage for clipboard history.
 
 ## Security-first feature set
 
