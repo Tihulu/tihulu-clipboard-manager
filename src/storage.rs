@@ -228,7 +228,7 @@ impl ClipboardStore {
 
         let ciphertext = cipher
             .encrypt(Nonce::from_slice(&nonce), plaintext)
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to encrypt history"))?;
+            .map_err(|_| io::Error::other("failed to encrypt history"))?;
 
         let file = EncryptedStoreFile {
             version: ENCRYPTED_FORMAT_VERSION,
@@ -273,7 +273,7 @@ pub enum AddTextResult {
 
 fn get_or_create_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+        .map_err(io::Error::other)?;
 
     if let Ok(secret) = entry.get_password() {
         let bytes = B64
@@ -289,7 +289,7 @@ fn get_or_create_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
     OsRng.fill_bytes(key.as_mut());
     entry
         .set_password(&B64.encode(*key))
-        .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+        .map_err(io::Error::other)?;
 
     Ok(key)
 }
