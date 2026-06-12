@@ -13,10 +13,17 @@ use cosmic::widget;
 
 const PREVIEW_MAX_BYTES: usize = 8 * 1024 * 1024;
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum PopupKind {
+    History,
+    Settings,
+}
+
 #[derive(Default)]
 pub struct AppModel {
     core: cosmic::Core,
     popup: Option<Id>,
+    popup_kind: Option<PopupKind>,
     config: Config,
     store: ClipboardStore,
     confirm_clear_all: bool,
@@ -25,14 +32,15 @@ pub struct AppModel {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    TogglePopup,
+    ToggleHistoryPopup,
+    ToggleSettingsPopup,
     PopupClosed(Id),
     ClipboardChanged(String),
     ClipboardImageChanged { mime: String, bytes: Box<[u8]> },
     UpdateConfig(Config),
-    TogglePrivateMode,
-    ToggleUniqueSession,
-    ToggleImageLimit,
+    SetPrivateMode(bool),
+    SetUniqueSession(bool),
+    SetImageLimit(bool),
     CopyEntry(u64),
     EntryCopied(Result<(), String>),
     DeleteEntry(u64),
@@ -76,57 +84,21 @@ impl cosmic::Application for AppModel {
     fn on_close_requested(&self, id: Id) -> Option<Message> { Some(Message::PopupClosed(id)) }
 
     fn view(&self) -> Element<'_, Self::Message> {
-        self.core
-            .applet
-            .icon_button("edit-paste-symbolic")
-            .on_press(Message::TogglePopup)
-            .into()
+        widget::mouse_area(
+            self.core
+                .applet
+                .icon_button("edit-paste-symbolic")
+                .on_press(Message::ToggleHistoryPopup),
+        )
+        .on_right_press(Message::ToggleSettingsPopup)
+        .into()
     }
 
     fn view_window(&self, _id: Id) -> Element<'_, Self::Message> {
-        let mut list = widget::column::with_capacity(self.store.entries().len().max(1))
-            .spacing(8)
-            .width(Length::Fill);
-
-        if self.store.entries().is_empty() {
-            list = list.push(widget::container(widget::text(fl!("history-empty"))).padding(12));
-        } else {
-            for entry in self.store.entries() {
-                list = list.push(entry_card(entry));
-            }
+        match self.popup_kind.unwrap_or(PopupKind::History) {
+            PopupKind::History => self.history_popup(),
+            PopupKind::Settings => self.settings_popup(),
         }
-
-        let mut content = widget::column::with_capacity(8)
-            .spacing(10)
-            .padding(12)
-            .push(header_row())
-            .push(status_row(&self.config))
-            .push(toggle_row(&self.config));
-
-        if let Some(action) = &self.last_action {
-            content = content.push(widget::container(widget::text(action.clone())).padding(8));
-        }
-
-        if self.confirm_clear_all {
-            content = content.push(confirm_clear_box());
-        }
-
-        content = content
-            .push(widget::divider::horizontal::light())
-            .push(list)
-            .push(widget::divider::horizontal::light())
-            .push(
-                widget::row::with_children(vec![
-                    widget::button::text(fl!("clear-unpinned"))
-                        .on_press(Message::ClearUnpinned)
-                        .into(),
-                    widget::Space::new().width(Length::Fill).into(),
-                    widget::text(format!("{}: {}", fl!("entries"), self.store.entries().len())).into(),
-                ])
-                .align_y(Alignment::Center),
-            );
-
-        self.core.applet.popup_container(content).into()
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
@@ -166,19 +138,19 @@ impl cosmic::Application for AppModel {
 
                 let _ = self.store.save(&self.config);
             }
-            Message::TogglePrivateMode => {
-                self.config.private_mode = !self.config.private_mode;
-                self.last_action = Some(if self.config.private_mode { fl!("incognito-enabled") } else { fl!("incognito-disabled") });
+            Message::SetPrivateMode(value) => {
+                self.config.private_mode = value;
+                self.last_action = Some(if value { fl!("incognito-enabled") } else { fl!("incognito-disabled") });
                 persist_config(&self.config);
             }
-            Message::ToggleUniqueSession => {
-                self.config.unique_session = !self.config.unique_session;
-                self.last_action = Some(if self.config.unique_session { fl!("unique-session-enabled") } else { fl!("unique-session-disabled") });
+            Message::SetUniqueSession(value) => {
+                self.config.unique_session = value;
+                self.last_action = Some(if value { fl!("unique-session-enabled") } else { fl!("unique-session-disabled") });
                 persist_config(&self.config);
             }
-            Message::ToggleImageLimit => {
-                self.config.limit_image_size = !self.config.limit_image_size;
-                self.last_action = Some(if self.config.limit_image_size { fl!("image-limit-enabled") } else { fl!("image-limit-disabled") });
+            Message::SetImageLimit(value) => {
+                self.config.limit_image_size = value;
+                self.last_action = Some(if value { fl!("image-limit-enabled") } else { fl!("image-limit-disabled") });
                 persist_config(&self.config);
             }
             Message::CopyEntry(id) => {
@@ -229,23 +201,14 @@ impl cosmic::Application for AppModel {
                 self.store.clear_unpinned();
                 let _ = self.store.save(&self.config);
             }
-            Message::TogglePopup => {
-                return if let Some(p) = self.popup.take() {
-                    destroy_popup(p)
-                } else {
-                    let new_id = Id::unique();
-                    self.popup.replace(new_id);
-                    let mut popup_settings = self.core.applet.get_popup_settings(self.core.main_window_id().unwrap(), new_id, None, None, None);
-                    popup_settings.positioner.size_limits = Limits::NONE
-                        .max_width(460.0)
-                        .min_width(380.0)
-                        .min_height(320.0)
-                        .max_height(960.0);
-                    get_popup(popup_settings)
-                };
-            }
+            Message::ToggleHistoryPopup => return self.toggle_popup(PopupKind::History),
+            Message::ToggleSettingsPopup => return self.toggle_popup(PopupKind::Settings),
             Message::PopupClosed(id) => {
-                if self.popup.as_ref() == Some(&id) { self.popup = None; }
+                if self.popup.as_ref() == Some(&id) {
+                    self.popup = None;
+                    self.popup_kind = None;
+                    self.confirm_clear_all = false;
+                }
             }
         }
 
@@ -253,6 +216,125 @@ impl cosmic::Application for AppModel {
     }
 
     fn style(&self) -> Option<cosmic::iced::theme::Style> { Some(cosmic::applet::style()) }
+}
+
+impl AppModel {
+    fn toggle_popup(&mut self, kind: PopupKind) -> Task<cosmic::Action<Message>> {
+        if self.popup_kind == Some(kind) {
+            self.popup_kind = None;
+            self.confirm_clear_all = false;
+            return self.popup.take().map_or_else(Task::none, destroy_popup);
+        }
+
+        let mut tasks = Vec::new();
+        if let Some(id) = self.popup.take() {
+            tasks.push(destroy_popup(id));
+        }
+
+        let id = Id::unique();
+        self.popup = Some(id);
+        self.popup_kind = Some(kind);
+        self.confirm_clear_all = false;
+
+        let mut settings = self.core.applet.get_popup_settings(
+            self.core.main_window_id().unwrap(),
+            id,
+            None,
+            None,
+            None,
+        );
+
+        settings.positioner.size_limits = match kind {
+            PopupKind::History => Limits::NONE
+                .min_width(520.0)
+                .max_width(640.0)
+                .min_height(420.0)
+                .max_height(760.0),
+            PopupKind::Settings => Limits::NONE
+                .min_width(340.0)
+                .max_width(380.0)
+                .min_height(180.0)
+                .max_height(320.0),
+        };
+
+        tasks.push(get_popup(settings));
+        Task::batch(tasks)
+    }
+
+    fn history_popup(&self) -> Element<'_, Message> {
+        let mut list = widget::column::with_capacity(self.store.entries().len().max(1))
+            .spacing(10)
+            .width(Length::Fill);
+
+        if self.store.entries().is_empty() {
+            list = list.push(widget::container(widget::text(fl!("history-empty"))).padding(12));
+        } else {
+            for entry in self.store.entries() {
+                list = list.push(entry_card(entry));
+            }
+        }
+
+        let mut content = widget::column::with_capacity(7)
+            .spacing(12)
+            .padding(14)
+            .push(header_row())
+            .push(status_row(&self.config));
+
+        if let Some(action) = &self.last_action {
+            content = content.push(widget::container(widget::text(action.clone())).padding(8));
+        }
+
+        if self.confirm_clear_all {
+            content = content.push(confirm_clear_box());
+        }
+
+        content = content
+            .push(widget::divider::horizontal::light())
+            .push(widget::scrollable(list).height(Length::Fixed(520.0)).width(Length::Fill))
+            .push(widget::divider::horizontal::light())
+            .push(
+                widget::row::with_children(vec![
+                    widget::button::text(fl!("clear-unpinned"))
+                        .on_press(Message::ClearUnpinned)
+                        .into(),
+                    widget::Space::new().width(Length::Fill).into(),
+                    widget::text(format!("{}: {}", fl!("entries"), self.store.entries().len())).into(),
+                ])
+                .align_y(Alignment::Center),
+            );
+
+        self.core.applet.popup_container(content).into()
+    }
+
+    fn settings_popup(&self) -> Element<'_, Message> {
+        let mut content = widget::column::with_capacity(7)
+            .spacing(14)
+            .padding(14)
+            .push(widget::text::title3(fl!("app-title")))
+            .push(settings_switch_row(
+                fl!("incognito"),
+                self.config.private_mode,
+                Message::SetPrivateMode,
+            ))
+            .push(settings_switch_row(
+                fl!("unique-session"),
+                self.config.unique_session,
+                Message::SetUniqueSession,
+            ))
+            .push(settings_switch_row(
+                fl!("image-limit"),
+                self.config.limit_image_size,
+                Message::SetImageLimit,
+            ))
+            .push(widget::divider::horizontal::light())
+            .push(widget::button::text(fl!("clear-all")).on_press(Message::RequestClearAll));
+
+        if self.confirm_clear_all {
+            content = content.push(confirm_clear_box());
+        }
+
+        self.core.applet.popup_container(content).into()
+    }
 }
 
 fn header_row() -> Element<'static, Message> {
@@ -276,23 +358,21 @@ fn status_row(config: &Config) -> Element<'static, Message> {
         badge(fl!("badge-images"), config.image_clipboard),
         badge(fl!("badge-incognito"), config.private_mode),
     ])
-    .spacing(6)
+    .spacing(10)
     .into()
 }
 
-fn toggle_row(config: &Config) -> Element<'static, Message> {
+fn settings_switch_row(
+    label: String,
+    value: bool,
+    on_toggle: fn(bool) -> Message,
+) -> Element<'static, Message> {
     widget::row::with_children(vec![
-        widget::button::text(toggle_label(fl!("incognito"), config.private_mode))
-            .on_press(Message::TogglePrivateMode)
-            .into(),
-        widget::button::text(toggle_label(fl!("unique-session"), config.unique_session))
-            .on_press(Message::ToggleUniqueSession)
-            .into(),
-        widget::button::text(image_limit_label(config))
-            .on_press(Message::ToggleImageLimit)
-            .into(),
+        widget::text(label).into(),
+        widget::Space::new().width(Length::Fill).into(),
+        widget::toggler(value).on_toggle(on_toggle).into(),
     ])
-    .spacing(8)
+    .align_y(Alignment::Center)
     .into()
 }
 
@@ -321,14 +401,14 @@ fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
         widget::button::text(pin_label).on_press(Message::TogglePin(entry.id)).into(),
         widget::button::text(fl!("delete")).on_press(Message::DeleteEntry(entry.id)).into(),
     ])
-    .spacing(6);
+    .spacing(10);
 
     let body: Element<'_, Message> = if let Some((mime, size_bytes)) = entry.image_info() {
         let preview: Element<'_, Message> = if size_bytes <= PREVIEW_MAX_BYTES {
             if let Some((_, bytes)) = entry.image() {
                 widget::image(widget::image::Handle::from_bytes(bytes))
-                    .width(Length::Fixed(86.0))
-                    .height(Length::Fixed(72.0))
+                    .width(Length::Fixed(180.0))
+                    .height(Length::Fixed(120.0))
                     .into()
             } else {
                 widget::text(fl!("image-preview-unavailable")).into()
@@ -338,43 +418,38 @@ fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
         };
 
         widget::row::with_children(vec![
-            widget::container(preview).padding(4).width(Length::Fixed(96.0)).into(),
+            widget::container(preview)
+                .padding(6)
+                .width(Length::Fixed(194.0))
+                .into(),
             widget::column::with_children(vec![
                 widget::text(format!("{} {mime}", fl!("image-entry"))).into(),
                 widget::text(human_size(size_bytes)).into(),
                 actions.into(),
             ])
-            .spacing(5)
+            .spacing(8)
             .width(Length::Fill)
             .into(),
         ])
-        .spacing(10)
+        .spacing(14)
         .align_y(Alignment::Center)
         .into()
     } else {
-        widget::column::with_children(vec![widget::text(entry.preview()).into(), actions.into()])
-            .spacing(6)
-            .into()
+        widget::column::with_children(vec![
+            widget::text(entry.preview()).width(Length::Fill).into(),
+            actions.into(),
+        ])
+        .spacing(8)
+        .width(Length::Fill)
+        .into()
     };
 
-    widget::container(body).width(Length::Fill).padding(10).into()
+    widget::container(body).width(Length::Fill).padding(12).into()
 }
 
 fn badge(label: String, active: bool) -> Element<'static, Message> {
     let marker = if active { "●" } else { "○" };
     widget::container(widget::text(format!("{marker} {label}"))).padding(6).into()
-}
-
-fn toggle_label(label: String, active: bool) -> String {
-    if active { format!("{}: {}", label, fl!("on")) } else { format!("{}: {}", label, fl!("off")) }
-}
-
-fn image_limit_label(config: &Config) -> String {
-    if config.limit_image_size {
-        format!("{}: {}", fl!("image-limit"), fl!("limited-25-mib"))
-    } else {
-        format!("{}: {}", fl!("image-limit"), fl!("no-size-cap"))
-    }
 }
 
 fn persist_config(config: &Config) {
