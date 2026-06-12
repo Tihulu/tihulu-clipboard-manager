@@ -6,7 +6,6 @@ use crate::fl;
 use crate::storage::{AddContentResult, ClipboardStore};
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
-use cosmic::iced::widget::horizontal_space;
 use cosmic::iced::{window::Id, Alignment, Length, Limits, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget;
@@ -102,12 +101,12 @@ impl cosmic::Application for AppModel {
             .push(
                 widget::row::with_children(vec![
                     widget::text::title3(fl!("app-title")).into(),
-                    horizontal_space(Length::Fill).into(),
+                    widget::Space::with_width(Length::Fill).into(),
                     widget::button::text(fl!("clear-all"))
                         .on_press(Message::RequestClearAll)
                         .into(),
                 ])
-                .align_items(Alignment::Center),
+                .align_y(Alignment::Center),
             );
 
         if self.config.private_mode {
