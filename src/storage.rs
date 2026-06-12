@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::config::Config;
-use crate::model::{encode_image_payload, ClipboardEntry, ClipboardPayload};
+use crate::model::{ClipboardEntry, ClipboardPayload, encode_image_payload};
 use crate::sensitive::looks_sensitive;
-use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use chacha20poly1305::{
-    aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
+    aead::{Aead, KeyInit},
 };
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -261,7 +261,7 @@ impl ClipboardStore {
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
 
         let key = get_or_create_history_key()?;
-        let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
+        let cipher = ChaCha20Poly1305::new(Key::from_slice(&key[..]));
         let plaintext = cipher
             .decrypt(Nonce::from_slice(&nonce_bytes), ciphertext.as_ref())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "failed to decrypt history"))?;
@@ -272,7 +272,7 @@ impl ClipboardStore {
 
     fn encrypt_store(plaintext: &[u8]) -> io::Result<Vec<u8>> {
         let key = get_or_create_history_key()?;
-        let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
+        let cipher = ChaCha20Poly1305::new(Key::from_slice(&key[..]));
 
         let mut nonce = [0u8; 12];
         OsRng.fill_bytes(&mut nonce);
@@ -388,7 +388,7 @@ fn unix_now() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_allowed_image_mime, AddContentResult, ClipboardStore};
+    use super::{AddContentResult, ClipboardStore, is_allowed_image_mime};
     use crate::config::Config;
 
     #[test]
