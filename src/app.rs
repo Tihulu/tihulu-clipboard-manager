@@ -449,7 +449,7 @@ fn status_row(config: &Config) -> Element<'static, Message> {
 }
 
 fn search_row(query: &str) -> Element<'_, Message> {
-    widget::text_input::search_input(fl!("search-placeholder"), query)
+    widget::text_input::text_input(fl!("search-placeholder"), query)
         .on_input(Message::SearchChanged)
         .on_clear(Message::ClearSearch)
         .width(Length::Fill)
