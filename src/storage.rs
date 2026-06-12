@@ -138,12 +138,17 @@ impl ClipboardStore {
         AddContentResult::Added
     }
 
-    pub fn add_image(&mut self, mime: impl Into<String>, bytes: &[u8], config: &Config) -> AddContentResult {
+    pub fn add_image(
+        &mut self,
+        mime: impl Into<String>,
+        bytes: &[u8],
+        config: &Config,
+    ) -> AddContentResult {
         if config.private_mode {
             return AddContentResult::SkippedPrivateMode;
         }
 
-        if !config.image_clipboard || config.max_image_bytes == 0 {
+        if !config.image_clipboard {
             return AddContentResult::SkippedUnsupportedMime;
         }
 
@@ -156,7 +161,11 @@ impl ClipboardStore {
             return AddContentResult::SkippedEmpty;
         }
 
-        if bytes.len() > config.max_image_bytes {
+        if config.limit_image_size && config.max_image_bytes == 0 {
+            return AddContentResult::SkippedTooLarge;
+        }
+
+        if config.limit_image_size && bytes.len() > config.max_image_bytes {
             return AddContentResult::SkippedTooLarge;
         }
 
@@ -391,8 +400,9 @@ mod tests {
     }
 
     #[test]
-    fn image_size_limit_is_enforced() {
+    fn image_size_limit_is_enforced_when_enabled() {
         let config = Config {
+            limit_image_size: true,
             max_image_bytes: 3,
             ..Config::default()
         };
@@ -401,6 +411,21 @@ mod tests {
         assert_eq!(
             store.add_image("image/png", &[1, 2, 3, 4], &config),
             AddContentResult::SkippedTooLarge
+        );
+    }
+
+    #[test]
+    fn image_size_limit_can_be_disabled() {
+        let config = Config {
+            limit_image_size: false,
+            max_image_bytes: 3,
+            ..Config::default()
+        };
+        let mut store = ClipboardStore::default();
+
+        assert_eq!(
+            store.add_image("image/png", &[1, 2, 3, 4], &config),
+            AddContentResult::Added
         );
     }
 
