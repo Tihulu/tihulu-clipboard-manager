@@ -6,6 +6,7 @@ use crate::fl;
 use crate::storage::{AddContentResult, ClipboardStore};
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
+use cosmic::iced::widget::horizontal_space;
 use cosmic::iced::{window::Id, Alignment, Length, Limits, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget;
@@ -95,54 +96,54 @@ impl cosmic::Application for AppModel {
     }
 
     fn view_window(&self, _id: Id) -> Element<'_, Self::Message> {
-        let mut content = widget::list_column()
+        let mut content = widget::column::with_capacity(8)
             .spacing(8)
             .padding(12)
-            .add(
+            .push(
                 widget::row::with_children(vec![
                     widget::text::title3(fl!("app-title")).into(),
-                    widget::horizontal_space().into(),
-                    widget::button(fl!("clear-all"))
+                    horizontal_space(Length::Fill).into(),
+                    widget::button::text(fl!("clear-all"))
                         .on_press(Message::RequestClearAll)
                         .into(),
                 ])
-                .align_y(Alignment::Center),
+                .align_items(Alignment::Center),
             );
 
         if self.config.private_mode {
-            content = content.add(widget::text(fl!("private-mode-enabled")));
+            content = content.push(widget::text(fl!("private-mode-enabled")));
         }
 
         if self.config.encrypt_history {
-            content = content.add(widget::text(fl!("history-encrypted")));
+            content = content.push(widget::text(fl!("history-encrypted")));
         }
 
         if self.config.image_clipboard {
-            content = content.add(widget::text(fl!("image-clipboard-enabled")));
-            content = content.add(
-                widget::button(image_limit_label(&self.config))
+            content = content.push(widget::text(fl!("image-clipboard-enabled")));
+            content = content.push(
+                widget::button::text(image_limit_label(&self.config))
                     .on_press(Message::ToggleImageLimit),
             );
         }
 
         if let Some(warning) = &self.backend_warning {
-            content = content.add(widget::text(format!("{} {warning}", fl!("backend-warning"))));
+            content = content.push(widget::text(format!("{} {warning}", fl!("backend-warning"))));
         }
 
         if let Some(action) = &self.last_action {
-            content = content.add(widget::text(action.clone()));
+            content = content.push(widget::text(action.clone()));
         }
 
         if self.confirm_clear_all {
-            content = content.add(
+            content = content.push(
                 widget::container(
                     widget::column::with_children(vec![
                         widget::text(fl!("clear-all-confirmation")).into(),
                         widget::row::with_children(vec![
-                            widget::button(fl!("cancel"))
+                            widget::button::text(fl!("cancel"))
                                 .on_press(Message::CancelClearAll)
                                 .into(),
-                            widget::button(fl!("erase-all"))
+                            widget::button::text(fl!("erase-all"))
                                 .on_press(Message::ConfirmClearAll)
                                 .into(),
                         ])
@@ -156,22 +157,22 @@ impl cosmic::Application for AppModel {
         }
 
         if self.store.entries().is_empty() {
-            content = content.add(widget::text(fl!("history-empty")));
+            content = content.push(widget::text(fl!("history-empty")));
         } else {
             for entry in self.store.entries() {
                 let pin_label = if entry.pinned { fl!("unpin") } else { fl!("pin") };
-                content = content.add(
+                content = content.push(
                     widget::container(
                         widget::column::with_children(vec![
                             widget::text(entry.preview()).into(),
                             widget::row::with_children(vec![
-                                widget::button(fl!("copy"))
+                                widget::button::text(fl!("copy"))
                                     .on_press(Message::CopyEntry(entry.id))
                                     .into(),
-                                widget::button(pin_label)
+                                widget::button::text(pin_label)
                                     .on_press(Message::TogglePin(entry.id))
                                     .into(),
-                                widget::button(fl!("delete"))
+                                widget::button::text(fl!("delete"))
                                     .on_press(Message::DeleteEntry(entry.id))
                                     .into(),
                             ])
@@ -185,8 +186,8 @@ impl cosmic::Application for AppModel {
             }
         }
 
-        content = content.add(
-            widget::button(fl!("clear-unpinned"))
+        content = content.push(
+            widget::button::text(fl!("clear-unpinned"))
                 .on_press(Message::ClearUnpinned),
         );
 
