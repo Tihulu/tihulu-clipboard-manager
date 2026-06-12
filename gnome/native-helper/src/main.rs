@@ -8,6 +8,8 @@ use chacha20poly1305::{
 use rand_core::{OsRng, RngCore};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{
     env,
     fs::{self, OpenOptions},
@@ -16,8 +18,6 @@ use std::{
     process::{Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use zeroize::Zeroizing;
 
 const SERVICE: &str = "io.github.tihulu.ClipboardManager.GNOME";
@@ -64,7 +64,9 @@ impl Default for Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum Payload {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     Image {
         mime: String,
         bytes_b64: String,
@@ -170,9 +172,8 @@ fn run() -> io::Result<()> {
             })?;
             let unique_session_was_enabled = config.unique_session;
             set_config_value(&mut config, &key, &value)?;
-            let unique_session_enabled = key == "uniqueSession"
-                && config.unique_session
-                && !unique_session_was_enabled;
+            let unique_session_enabled =
+                key == "uniqueSession" && config.unique_session && !unique_session_was_enabled;
             save_config(&config)?;
 
             if unique_session_enabled {
@@ -404,7 +405,13 @@ fn read_wl_clipboard_mime(mime: &str, no_newline: bool) -> io::Result<Option<Vec
 
 fn read_xclip_clipboard_mime(mime: &str, no_newline: bool) -> io::Result<Option<Vec<u8>>> {
     let output = Command::new("xclip")
-        .args(["-selection", "clipboard", "-out", "-target", xclip_target(mime)])
+        .args([
+            "-selection",
+            "clipboard",
+            "-out",
+            "-target",
+            xclip_target(mime),
+        ])
         .output()?;
 
     if !output.status.success() || output.stdout.is_empty() {
@@ -456,7 +463,13 @@ fn write_wl_clipboard(mime: &str, bytes: Vec<u8>) -> io::Result<()> {
 
 fn write_xclip_clipboard(mime: &str, bytes: Vec<u8>) -> io::Result<()> {
     let mut child = Command::new("xclip")
-        .args(["-selection", "clipboard", "-in", "-target", xclip_target(mime)])
+        .args([
+            "-selection",
+            "clipboard",
+            "-in",
+            "-target",
+            xclip_target(mime),
+        ])
         .stdin(Stdio::piped())
         .spawn()?;
     write_child_stdin(&mut child, &bytes)?;
@@ -549,7 +562,12 @@ fn save_config(config: &Config) -> io::Result<()> {
 
 fn load_store(config: &Config) -> Store {
     load_store_from_path(&store_path(config.encrypt_history), config.encrypt_history)
-        .or_else(|| load_store_from_path(&store_path(!config.encrypt_history), !config.encrypt_history))
+        .or_else(|| {
+            load_store_from_path(
+                &store_path(!config.encrypt_history),
+                !config.encrypt_history,
+            )
+        })
         .unwrap_or_else(default_store)
 }
 
