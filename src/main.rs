@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#![allow(clippy::needless_return)]
+
 mod app;
 mod clipboard;
 mod config;
