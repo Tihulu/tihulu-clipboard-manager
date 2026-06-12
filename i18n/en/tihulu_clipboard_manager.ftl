@@ -33,4 +33,6 @@ incognito-disabled = Incognito disabled. New clipboard items will be stored agai
 unique-session-enabled = Unique session enabled. Persisted history will be cleared on startup.
 unique-session-disabled = Unique session disabled.
 image-entry = Image
+image-preview-too-large = Large image
+image-preview-unavailable = No preview
 entries = Entries
