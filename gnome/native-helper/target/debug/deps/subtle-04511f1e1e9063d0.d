@@ -1,7 +1,0 @@
-/home/runner/work/tihulu-clipboard-manager/tihulu-clipboard-manager/Tihulu/tihulu-clipboard-manager/gnome/native-helper/target/debug/deps/subtle-04511f1e1e9063d0.d: /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/subtle-2.6.1/src/lib.rs
-
-/home/runner/work/tihulu-clipboard-manager/tihulu-clipboard-manager/Tihulu/tihulu-clipboard-manager/gnome/native-helper/target/debug/deps/libsubtle-04511f1e1e9063d0.rlib: /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/subtle-2.6.1/src/lib.rs
-
-/home/runner/work/tihulu-clipboard-manager/tihulu-clipboard-manager/Tihulu/tihulu-clipboard-manager/gnome/native-helper/target/debug/deps/libsubtle-04511f1e1e9063d0.rmeta: /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/subtle-2.6.1/src/lib.rs
-
-/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/subtle-2.6.1/src/lib.rs:

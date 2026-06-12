@@ -1,3 +1,5 @@
 /target
+/gnome/native-helper/target
+/gnome/native-helper/Cargo.lock
 *.bak
 *.tmp
