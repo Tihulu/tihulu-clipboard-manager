@@ -2,7 +2,13 @@
 
 use crate::app::Message;
 use futures::{channel::mpsc::Sender, SinkExt};
-use std::{io, process::Stdio, time::Duration};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    io,
+    process::Stdio,
+    time::Duration,
+};
 use tokio::{
     io::AsyncWriteExt,
     process::Command,
@@ -11,32 +17,33 @@ use tokio::{
 
 const POLL_INTERVAL: Duration = Duration::from_millis(750);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
+const IMAGE_MIME_TYPES: &[&str] = &["image/png", "image/jpeg", "image/webp", "image/gif"];
 
-/// Watch the Wayland text clipboard using `wl-paste`.
-///
-/// This is the first daily-use backend because it is simple to test on COSMIC/Wayland.
-/// A native data-control backend can replace this module later without touching the UI/store.
-pub async fn watch_text_clipboard(mut sender: Sender<Message>) {
-    let mut last_seen: Option<String> = None;
+pub async fn watch_clipboard(mut sender: Sender<Message>) {
+    let mut last_seen_text: Option<String> = None;
+    let mut last_seen_image: Option<(String, u64)> = None;
 
     loop {
-        match read_text_clipboard().await {
-            Ok(Some(text)) => {
-                if last_seen.as_deref() != Some(text.as_str()) {
-                    last_seen = Some(text.clone());
-                    if sender.send(Message::ClipboardChanged(text)).await.is_err() {
-                        return;
-                    }
+        if let Ok(Some(text)) = read_text_clipboard().await {
+            if last_seen_text.as_deref() != Some(text.as_str()) {
+                last_seen_text = Some(text.clone());
+                if sender.send(Message::ClipboardChanged(text)).await.is_err() {
+                    return;
                 }
             }
-            Ok(None) => {}
-            Err(error) => {
-                let _ = sender
-                    .send(Message::ClipboardBackendWarning(format!(
-                        "wl-paste clipboard watcher failed: {error}"
-                    )))
-                    .await;
-                sleep(Duration::from_secs(5)).await;
+        }
+
+        if let Ok(Some((mime, bytes))) = read_image_clipboard().await {
+            let hash = hash_payload(&mime, &bytes);
+            if last_seen_image.as_ref() != Some(&(mime.clone(), hash)) {
+                last_seen_image = Some((mime.clone(), hash));
+                if sender
+                    .send(Message::ClipboardImageChanged { mime, bytes })
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
             }
         }
 
@@ -45,7 +52,16 @@ pub async fn watch_text_clipboard(mut sender: Sender<Message>) {
 }
 
 pub async fn copy_text_to_clipboard(text: String) -> Result<(), String> {
+    write_clipboard("text/plain", text.into_bytes()).await
+}
+
+pub async fn copy_image_to_clipboard(mime: String, bytes: Vec<u8>) -> Result<(), String> {
+    write_clipboard(&mime, bytes).await
+}
+
+async fn write_clipboard(mime: &str, bytes: Vec<u8>) -> Result<(), String> {
     let mut child = Command::new("wl-copy")
+        .args(["--type", mime])
         .stdin(Stdio::piped())
         .spawn()
         .map_err(|error| format!("failed to start wl-copy: {error}"))?;
@@ -55,9 +71,9 @@ pub async fn copy_text_to_clipboard(text: String) -> Result<(), String> {
     };
 
     stdin
-        .write_all(text.as_bytes())
+        .write_all(&bytes)
         .await
-        .map_err(|error| format!("failed to write clipboard text: {error}"))?;
+        .map_err(|error| format!("failed to write clipboard payload: {error}"))?;
     drop(stdin);
 
     let status = timeout(COMMAND_TIMEOUT, child.wait())
@@ -73,23 +89,62 @@ pub async fn copy_text_to_clipboard(text: String) -> Result<(), String> {
 }
 
 async fn read_text_clipboard() -> io::Result<Option<String>> {
+    let Some(bytes) = read_clipboard_mime("text/plain").await? else {
+        return Ok(None);
+    };
+
+    let text = String::from_utf8_lossy(&bytes).to_string();
+    if text.trim().is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(text))
+    }
+}
+
+async fn read_image_clipboard() -> io::Result<Option<(String, Vec<u8>)>> {
+    for mime in IMAGE_MIME_TYPES {
+        if let Some(bytes) = read_clipboard_mime(mime).await? {
+            if !bytes.is_empty() {
+                return Ok(Some(((*mime).to_string(), bytes)));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+async fn read_clipboard_mime(mime: &str) -> io::Result<Option<Vec<u8>>> {
     let output = timeout(
         COMMAND_TIMEOUT,
         Command::new("wl-paste")
-            .args(["--no-newline", "--type", "text"])
+            .args(["--no-newline", "--type", mime])
             .output(),
     )
     .await
     .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "wl-paste timed out"))??;
 
-    if !output.status.success() {
+    if !output.status.success() || output.stdout.is_empty() {
         return Ok(None);
     }
 
-    let text = String::from_utf8_lossy(&output.stdout).to_string();
-    if text.trim().is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(text))
+    Ok(Some(output.stdout))
+}
+
+fn hash_payload(mime: &str, bytes: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    mime.hash(&mut hasher);
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hash_payload;
+
+    #[test]
+    fn image_hash_includes_mime_and_bytes() {
+        assert_eq!(hash_payload("image/png", &[1, 2]), hash_payload("image/png", &[1, 2]));
+        assert_ne!(hash_payload("image/png", &[1, 2]), hash_payload("image/jpeg", &[1, 2]));
+        assert_ne!(hash_payload("image/png", &[1, 2]), hash_payload("image/png", &[1, 3]));
     }
 }
