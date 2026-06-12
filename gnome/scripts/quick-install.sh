@@ -20,12 +20,40 @@ need_cmd() {
     command -v "$1" >/dev/null 2>&1
 }
 
-for cmd in git cargo gnome-extensions wl-copy wl-paste; do
+missing=0
+for cmd in git cargo gnome-extensions; do
     if ! need_cmd "$cmd"; then
         echo "$cmd is required." >&2
-        exit 1
+        missing=1
     fi
 done
+
+case "${XDG_SESSION_TYPE:-unknown}" in
+    wayland)
+        for cmd in wl-copy wl-paste; do
+            if ! need_cmd "$cmd"; then
+                echo "$cmd is required on Wayland. Install wl-clipboard." >&2
+                missing=1
+            fi
+        done
+        ;;
+    x11|xorg)
+        if ! need_cmd xclip; then
+            echo "xclip is required on GNOME X11/Xorg. Install it with: sudo apt install xclip" >&2
+            missing=1
+        fi
+        ;;
+    *)
+        if ! need_cmd xclip && { ! need_cmd wl-copy || ! need_cmd wl-paste; }; then
+            echo "No supported clipboard backend found. Install xclip for X11 or wl-clipboard for Wayland." >&2
+            missing=1
+        fi
+        ;;
+esac
+
+if [ "$missing" -ne 0 ]; then
+    exit 1
+fi
 
 TMP_DIR="$(mktemp -d)"
 git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$TMP_DIR/repo"
