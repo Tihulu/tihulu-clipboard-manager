@@ -12,10 +12,12 @@ use std::{
     env,
     fs::{self, OpenOptions},
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use zeroize::Zeroizing;
 
 const SERVICE: &str = "io.github.tihulu.ClipboardManager.GNOME";
@@ -546,24 +548,24 @@ fn save_config(config: &Config) -> io::Result<()> {
 }
 
 fn load_store(config: &Config) -> Store {
-    let path = store_path(config.encrypt_history);
-    let Ok(contents) = fs::read_to_string(path) else {
-        return Store {
-            entries: Vec::new(),
-            next_id: 1,
-        };
-    };
+    load_store_from_path(&store_path(config.encrypt_history), config.encrypt_history)
+        .or_else(|| load_store_from_path(&store_path(!config.encrypt_history), !config.encrypt_history))
+        .unwrap_or_else(default_store)
+}
 
-    if config.encrypt_history {
-        load_encrypted(&contents).unwrap_or_else(|_| Store {
-            entries: Vec::new(),
-            next_id: 1,
-        })
+fn load_store_from_path(path: &Path, encrypted: bool) -> Option<Store> {
+    let contents = fs::read_to_string(path).ok()?;
+    if encrypted {
+        load_encrypted(&contents).ok()
     } else {
-        serde_json::from_str(&contents).unwrap_or_else(|_| Store {
-            entries: Vec::new(),
-            next_id: 1,
-        })
+        serde_json::from_str(&contents).ok()
+    }
+}
+
+fn default_store() -> Store {
+    Store {
+        entries: Vec::new(),
+        next_id: 1,
     }
 }
 
@@ -617,21 +619,41 @@ fn encrypt_bytes(plaintext: &[u8]) -> io::Result<Vec<u8>> {
 }
 
 fn history_key() -> io::Result<Zeroizing<[u8; 32]>> {
-    let entry = keyring::Entry::new(SERVICE, KEY_NAME).map_err(io::Error::other)?;
-    if let Ok(encoded) = entry.get_password() {
-        let bytes = B64.decode(encoded).map_err(io::Error::other)?;
-        let key: [u8; 32] = bytes
-            .try_into()
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid key length"))?;
-        return Ok(Zeroizing::new(key));
+    if let Ok(entry) = keyring::Entry::new(SERVICE, KEY_NAME) {
+        if let Ok(encoded) = entry.get_password()
+            && let Some(key) = decode_history_key(&encoded)
+        {
+            return Ok(key);
+        }
+
+        let mut key = Zeroizing::new([0u8; 32]);
+        OsRng.fill_bytes(key.as_mut());
+        if entry.set_password(&B64.encode(*key)).is_ok() {
+            return Ok(key);
+        }
+    }
+
+    local_history_key()
+}
+
+fn local_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
+    let path = key_path();
+    if let Ok(encoded) = fs::read_to_string(&path)
+        && let Some(key) = decode_history_key(&encoded)
+    {
+        return Ok(key);
     }
 
     let mut key = Zeroizing::new([0u8; 32]);
     OsRng.fill_bytes(key.as_mut());
-    entry
-        .set_password(&B64.encode(*key))
-        .map_err(io::Error::other)?;
+    write_private_file(&path, B64.encode(*key).as_bytes())?;
     Ok(key)
+}
+
+fn decode_history_key(encoded: &str) -> Option<Zeroizing<[u8; 32]>> {
+    let bytes = B64.decode(encoded.trim()).ok()?;
+    let key: [u8; 32] = bytes.try_into().ok()?;
+    Some(Zeroizing::new(key))
 }
 
 fn print_state(store: &Store, config: &Config) -> io::Result<()> {
@@ -694,6 +716,10 @@ fn config_path() -> PathBuf {
     data_dir().join("config.json")
 }
 
+fn key_path() -> PathBuf {
+    data_dir().join("history.key")
+}
+
 fn store_path(encrypted: bool) -> PathBuf {
     data_dir().join(if encrypted {
         "history.enc.json"
@@ -702,9 +728,10 @@ fn store_path(encrypted: bool) -> PathBuf {
     })
 }
 
-fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
+fn write_private_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
+        set_private_dir_permissions(parent)?;
     }
     let mut file = OpenOptions::new()
         .create(true)
@@ -712,7 +739,24 @@ fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
         .truncate(true)
         .open(path)?;
     file.write_all(bytes)?;
-    file.sync_all()
+    file.sync_all()?;
+    set_private_file_permissions(path)
+}
+
+fn set_private_dir_permissions(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
+fn set_private_file_permissions(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
 }
 
 fn unix_now() -> u64 {
