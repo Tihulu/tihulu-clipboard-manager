@@ -24,12 +24,12 @@ pub async fn watch_clipboard(mut sender: Sender<Message>) {
     let mut last_seen_image: Option<(String, u64)> = None;
 
     loop {
-        if let Ok(Some(text)) = read_text_clipboard().await {
-            if last_seen_text.as_deref() != Some(text.as_str()) {
-                last_seen_text = Some(text.clone());
-                if sender.send(Message::ClipboardChanged(text)).await.is_err() {
-                    return;
-                }
+        if let Ok(Some(text)) = read_text_clipboard().await
+            && last_seen_text.as_deref() != Some(text.as_str())
+        {
+            last_seen_text = Some(text.clone());
+            if sender.send(Message::ClipboardChanged(text)).await.is_err() {
+                return;
             }
         }
 
@@ -106,10 +106,10 @@ async fn read_text_clipboard() -> io::Result<Option<String>> {
 
 async fn read_image_clipboard() -> io::Result<Option<(String, Vec<u8>)>> {
     for mime in IMAGE_MIME_TYPES {
-        if let Some(bytes) = read_clipboard_mime(mime, false).await? {
-            if !bytes.is_empty() {
-                return Ok(Some(((*mime).to_string(), bytes)));
-            }
+        if let Some(bytes) = read_clipboard_mime(mime, false).await?
+            && !bytes.is_empty()
+        {
+            return Ok(Some(((*mime).to_string(), bytes)));
         }
     }
 
