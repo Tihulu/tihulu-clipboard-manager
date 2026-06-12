@@ -17,7 +17,6 @@ pub struct AppModel {
     config: Config,
     store: ClipboardStore,
     confirm_clear_all: bool,
-    backend_warning: Option<String>,
     last_action: Option<String>,
 }
 
@@ -27,7 +26,6 @@ pub enum Message {
     PopupClosed(Id),
     ClipboardChanged(String),
     ClipboardImageChanged { mime: String, bytes: Box<[u8]> },
-    ClipboardBackendWarning(String),
     UpdateConfig(Config),
     ToggleImageLimit,
     CopyEntry(u64),
@@ -125,10 +123,6 @@ impl cosmic::Application for AppModel {
             );
         }
 
-        if let Some(warning) = &self.backend_warning {
-            content = content.push(widget::text(format!("{} {warning}", fl!("backend-warning"))));
-        }
-
         if let Some(action) = &self.last_action {
             content = content.push(widget::text(action.clone()));
         }
@@ -206,7 +200,6 @@ impl cosmic::Application for AppModel {
         match message {
             Message::ClipboardChanged(text) => {
                 if matches!(self.store.add_text(text, &self.config), AddContentResult::Added) {
-                    self.backend_warning = None;
                     let _ = self.store.save(&self.config);
                 }
             }
@@ -215,12 +208,8 @@ impl cosmic::Application for AppModel {
                     self.store.add_image(mime, bytes.as_ref(), &self.config),
                     AddContentResult::Added
                 ) {
-                    self.backend_warning = None;
                     let _ = self.store.save(&self.config);
                 }
-            }
-            Message::ClipboardBackendWarning(warning) => {
-                self.backend_warning = Some(warning);
             }
             Message::UpdateConfig(config) => {
                 let encryption_changed = self.config.encrypt_history != config.encrypt_history;
