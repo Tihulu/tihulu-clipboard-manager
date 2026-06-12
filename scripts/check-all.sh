@@ -27,3 +27,13 @@ cargo check
 cargo test --all-targets --all-features
 cargo clippy --all-targets --all-features -- -D warnings
 cargo audit
+
+cargo fmt --manifest-path gnome/native-helper/Cargo.toml --all -- --check
+cargo check --manifest-path gnome/native-helper/Cargo.toml
+cargo test --manifest-path gnome/native-helper/Cargo.toml --all-targets --all-features
+cargo clippy --manifest-path gnome/native-helper/Cargo.toml --all-targets --all-features -- -D warnings
+(
+    cd gnome/native-helper
+    cargo generate-lockfile
+    cargo audit
+)
