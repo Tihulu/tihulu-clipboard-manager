@@ -1,8 +1,8 @@
 {
   "uuid": "tihulu-clipboard-manager@tihulu.dev",
   "name": "Tihulu Clipboard Manager",
-  "description": "GNOME Shell clipboard history indicator powered by the Tihulu native helper.",
+  "description": "GNOME Shell clipboard history indicator powered by a background daemon.",
   "shell-version": ["45", "46", "47", "48", "49"],
-  "version": 2,
+  "version": 5,
   "url": "https://github.com/Tihulu/tihulu-clipboard-manager"
 }
