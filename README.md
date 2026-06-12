@@ -7,7 +7,9 @@ Tihulu Clipboard Manager focuses on privacy, clear history controls, and encrypt
 ## Security-first feature set
 
 - Text clipboard watcher for COSMIC/Wayland via `wl-paste`
+- Image clipboard watcher for PNG, JPEG, WebP, and GIF payloads
 - Click-to-copy via `wl-copy`
+- Image click-to-copy while preserving the MIME type
 - Visible **Clear All / Erase All** button in the main popup
 - Confirmation before destructive history deletion
 - Real Erase All removes plaintext and encrypted persisted history files
@@ -19,21 +21,22 @@ Tihulu Clipboard Manager focuses on privacy, clear history controls, and encrypt
 - Maximum history size
 - Maximum history age, default 30 days
 - Sensitive-content filter for common passwords, API keys, private keys, tokens, OTPs, and recovery phrases
-- Oversized text entry protection
+- Oversized text and image entry protection
+- Image payload size limit, default 25 MiB
 - Clear unpinned items while keeping pinned entries
 - Delete individual entries
 - Pin / unpin entries
 
 ## Current status
 
-The security storage layer, popup actions, text clipboard watcher, and click-to-copy path are implemented in the scaffold.
+The security storage layer, popup actions, text/image clipboard watcher, and click-to-copy path are implemented in the scaffold.
 
 Still needed before daily use:
 
 - Test against the current COSMIC/libcosmic API on Pop!_OS
 - Install and verify `wl-clipboard` on the target system
 - Add per-application ignore rules if COSMIC/Wayland exposes source app metadata
-- Run `cargo check`, `cargo fmt`, `cargo clippy`, and `cargo audit` on a COSMIC development machine
+- Run `cargo check`, `cargo test`, `cargo fmt`, `cargo clippy`, and `cargo audit` on a COSMIC development machine
 - Replace the `wl-clipboard` backend with a native Wayland data-control backend later if needed
 
 ## Runtime dependency
@@ -46,7 +49,8 @@ sudo apt install wl-clipboard
 
 It uses:
 
-- `wl-paste` to watch the text clipboard
+- `wl-paste` to watch text clipboard payloads
+- `wl-paste` to watch PNG, JPEG, WebP, and GIF clipboard payloads
 - `wl-copy` to restore/copy a selected history item
 
 ## Build locally
@@ -55,6 +59,7 @@ Install Rust and `just`, then run:
 
 ```bash
 cargo check
+cargo test --all-targets --all-features
 just run
 ```
 
