@@ -48,22 +48,36 @@ jobs:
           fi
 
       - name: Format check
-        run: cargo fmt --all -- --check
+        run: |
+          cargo fmt --all -- --check
+          cargo fmt --manifest-path gnome/native-helper/Cargo.toml --all -- --check
 
       - name: Cargo check
-        run: cargo check
+        run: |
+          cargo check
+          cargo check --manifest-path gnome/native-helper/Cargo.toml
 
       - name: Tests
-        run: cargo test --all-targets --all-features
+        run: |
+          cargo test --all-targets --all-features
+          cargo test --manifest-path gnome/native-helper/Cargo.toml --all-targets --all-features
 
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: |
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo clippy --manifest-path gnome/native-helper/Cargo.toml --all-targets --all-features -- -D warnings
 
       - name: Security audit
-        run: cargo audit
+        run: |
+          cargo audit
+          cd gnome/native-helper
+          cargo generate-lockfile
+          cargo audit
 
-      - name: Build release binary
-        run: cargo build --release
+      - name: Build release binaries
+        run: |
+          cargo build --release
+          cargo build --release --manifest-path gnome/native-helper/Cargo.toml
 
       - name: Create and push tag
         shell: bash
@@ -85,13 +99,17 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ inputs.version }}"
-          mkdir -p dist
-          cp target/release/tihulu-clipboard-manager dist/
-          cp resources/app.desktop dist/io.github.tihulu.ClipboardManager.desktop
-          cp resources/app.metainfo.xml dist/io.github.tihulu.ClipboardManager.metainfo.xml
-          cp resources/icon.svg dist/io.github.tihulu.ClipboardManager.svg
-          cp scripts/quick-install.sh dist/
-          cp scripts/update.sh dist/
+          mkdir -p dist/cosmic dist/gnome/helper dist/gnome/extension
+          cp target/release/tihulu-clipboard-manager dist/cosmic/
+          cp resources/app.desktop dist/cosmic/io.github.tihulu.ClipboardManager.desktop
+          cp resources/app.metainfo.xml dist/cosmic/io.github.tihulu.ClipboardManager.metainfo.xml
+          cp resources/icon.svg dist/cosmic/io.github.tihulu.ClipboardManager.svg
+          cp scripts/quick-install.sh dist/cosmic/
+          cp scripts/update.sh dist/cosmic/
+          cp gnome/native-helper/target/release/tihulu-gnome-clipboard-helper dist/gnome/helper/
+          cp -R gnome/extension-native/* dist/gnome/extension/
+          cp gnome/scripts/quick-install.sh dist/gnome/quick-install.sh
+          cp gnome/README.md dist/gnome/README.md
           tar -C dist -czf "tihulu-clipboard-manager-${VERSION}-linux-x86_64.tar.gz" .
 
       - name: Create GitHub release
