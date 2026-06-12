@@ -373,7 +373,7 @@ fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
         file.write_all(bytes)?;
         file.sync_all()?;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(unix))]
