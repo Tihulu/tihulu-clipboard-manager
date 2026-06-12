@@ -101,7 +101,7 @@ impl cosmic::Application for AppModel {
             .push(
                 widget::row::with_children(vec![
                     widget::text::title3(fl!("app-title")).into(),
-                    widget::Space::with_width(Length::Fill).into(),
+                    widget::Space::new().width(Length::Fill).into(),
                     widget::button::text(fl!("clear-all"))
                         .on_press(Message::RequestClearAll)
                         .into(),
