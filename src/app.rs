@@ -378,7 +378,10 @@ fn image_limit_label(config: &Config) -> String {
 }
 
 fn persist_config(config: &Config) {
-    if let Ok(context) = cosmic_config::Config::new(AppModel::APP_ID, Config::VERSION) {
+    if let Ok(context) = cosmic_config::Config::new(
+        <AppModel as cosmic::Application>::APP_ID,
+        Config::VERSION,
+    ) {
         let _ = config.write_entry(&context);
     }
 }
