@@ -31,6 +31,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install system dependencies
+        run: bash scripts/ci-deps.sh
+
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
 
