@@ -39,7 +39,7 @@ impl Default for Config {
             sensitive_filter: true,
             max_text_bytes: 256 * 1024,
             image_clipboard: true,
-            max_image_bytes: 5 * 1024 * 1024,
+            max_image_bytes: 25 * 1024 * 1024,
         }
     }
 }
