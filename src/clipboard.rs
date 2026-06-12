@@ -38,7 +38,10 @@ pub async fn watch_clipboard(mut sender: Sender<Message>) {
             if last_seen_image.as_ref() != Some(&(mime.clone(), hash)) {
                 last_seen_image = Some((mime.clone(), hash));
                 if sender
-                    .send(Message::ClipboardImageChanged { mime, bytes })
+                    .send(Message::ClipboardImageChanged {
+                        mime,
+                        bytes: bytes.into_boxed_slice(),
+                    })
                     .await
                     .is_err()
                 {
@@ -55,8 +58,8 @@ pub async fn copy_text_to_clipboard(text: String) -> Result<(), String> {
     write_clipboard("text/plain", text.into_bytes()).await
 }
 
-pub async fn copy_image_to_clipboard(mime: String, bytes: Vec<u8>) -> Result<(), String> {
-    write_clipboard(&mime, bytes).await
+pub async fn copy_image_to_clipboard(mime: String, bytes: Box<[u8]>) -> Result<(), String> {
+    write_clipboard(&mime, bytes.into_vec()).await
 }
 
 async fn write_clipboard(mime: &str, bytes: Vec<u8>) -> Result<(), String> {
