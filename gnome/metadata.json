@@ -1,0 +1,8 @@
+{
+  "uuid": "tihulu-clipboard-manager@tihulu.dev",
+  "name": "Tihulu Clipboard Manager",
+  "description": "Local GNOME Shell clipboard history indicator for copied text.",
+  "shell-version": ["45", "46", "47", "48", "49"],
+  "version": 1,
+  "url": "https://github.com/Tihulu/tihulu-clipboard-manager"
+}
