@@ -28,6 +28,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
       - name: Validate version
         shell: bash
         run: |
@@ -37,6 +43,24 @@ jobs:
             echo "Version must look like v0.1.0" >&2
             exit 1
           fi
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Cargo check
+        run: cargo check
+
+      - name: Tests
+        run: cargo test --all-targets --all-features
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Security audit
+        run: cargo audit
+
+      - name: Build release binary
+        run: cargo build --release
 
       - name: Create and push tag
         shell: bash
@@ -53,6 +77,20 @@ jobs:
             git push origin "$VERSION"
           fi
 
+      - name: Create archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version }}"
+          mkdir -p dist
+          cp target/release/tihulu-clipboard-manager dist/
+          cp resources/app.desktop dist/io.github.tihulu.ClipboardManager.desktop
+          cp resources/app.metainfo.xml dist/io.github.tihulu.ClipboardManager.metainfo.xml
+          cp resources/icon.svg dist/io.github.tihulu.ClipboardManager.svg
+          cp scripts/quick-install.sh dist/
+          cp scripts/update.sh dist/
+          tar -C dist -czf "tihulu-clipboard-manager-${VERSION}-linux-x86_64.tar.gz" .
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -61,12 +99,14 @@ jobs:
           set -euo pipefail
           VERSION="${{ inputs.version }}"
           TITLE="$VERSION - Initial preview release"
+          ARCHIVE="tihulu-clipboard-manager-${VERSION}-linux-x86_64.tar.gz"
           FLAGS=()
           if [[ "${{ inputs.prerelease }}" == "true" ]]; then
             FLAGS+=(--prerelease)
           fi
           if gh release view "$VERSION" >/dev/null 2>&1; then
             gh release edit "$VERSION" --title "$TITLE" --notes-file CHANGELOG.md "${FLAGS[@]}"
+            gh release upload "$VERSION" "$ARCHIVE" --clobber
           else
-            gh release create "$VERSION" --title "$TITLE" --notes-file CHANGELOG.md "${FLAGS[@]}"
+            gh release create "$VERSION" "$ARCHIVE" --title "$TITLE" --notes-file CHANGELOG.md "${FLAGS[@]}"
           fi
