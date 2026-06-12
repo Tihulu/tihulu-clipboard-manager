@@ -3,7 +3,7 @@
 use cosmic::cosmic_config::{self, cosmic_config_derive::CosmicConfigEntry, CosmicConfigEntry};
 
 #[derive(Debug, Clone, CosmicConfigEntry, Eq, PartialEq)]
-#[version = 2]
+#[version = 3]
 pub struct Config {
     pub confirm_before_clear_all: bool,
     pub max_entries: usize,
@@ -20,6 +20,10 @@ pub struct Config {
     pub sensitive_filter: bool,
     /// Maximum text payload size to store, in bytes. 0 disables text storage.
     pub max_text_bytes: usize,
+    /// Store common image clipboard payloads.
+    pub image_clipboard: bool,
+    /// Maximum image payload size to store, in bytes. 0 disables image storage.
+    pub max_image_bytes: usize,
 }
 
 impl Default for Config {
@@ -34,6 +38,8 @@ impl Default for Config {
             encrypt_history: true,
             sensitive_filter: true,
             max_text_bytes: 256 * 1024,
+            image_clipboard: true,
+            max_image_bytes: 5 * 1024 * 1024,
         }
     }
 }
