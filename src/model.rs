@@ -52,7 +52,10 @@ impl ClipboardEntry {
             ClipboardPayload::Text(_) => None,
             ClipboardPayload::Image {
                 mime, bytes_b64, ..
-            } => B64.decode(bytes_b64).ok().map(|bytes| (mime.as_str(), bytes)),
+            } => B64
+                .decode(bytes_b64)
+                .ok()
+                .map(|bytes| (mime.as_str(), bytes)),
         }
     }
 }
