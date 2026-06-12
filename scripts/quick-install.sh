@@ -8,6 +8,11 @@ BRANCH="${BRANCH:-main}"
 PREFIX="${PREFIX:-/usr}"
 KEEP_BUILD_DIR="${KEEP_BUILD_DIR:-0}"
 
+if [ -f "$HOME/.cargo/env" ]; then
+    # shellcheck disable=SC1090
+    source "$HOME/.cargo/env"
+fi
+
 log() {
     printf '\n==> %s\n' "$*"
 }
@@ -65,6 +70,8 @@ main() {
     ensure_rust
     ensure_just
 
+    JUST_BIN="$(command -v just)"
+
     BUILD_DIR="$(mktemp -d -t tihulu-clipboard-manager.XXXXXX)"
     if [ "$KEEP_BUILD_DIR" != "1" ]; then
         trap 'rm -rf "$BUILD_DIR"' EXIT
@@ -83,10 +90,10 @@ main() {
     cargo test --all-targets --all-features
 
     log "Building release binary"
-    just build-release
+    "$JUST_BIN" build-release
 
     log "Installing to $PREFIX"
-    sudo env prefix="$PREFIX" just install
+    sudo env "prefix=$PREFIX" "$JUST_BIN" install
 
     log "Installed Tihulu Clipboard Manager"
     printf 'Restart COSMIC Shell or log out/in if the applet does not appear immediately.\n'
