@@ -493,7 +493,11 @@ fn confirm_clear_box() -> Element<'static, Message> {
 }
 
 fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
-    let pin_label = if entry.pinned { fl!("unpin") } else { fl!("pin") };
+    let pin_label = if entry.pinned {
+        fl!("unpin")
+    } else {
+        fl!("pin")
+    };
     let actions = widget::row::with_children(vec![
         widget::button::text(fl!("copy"))
             .on_press(Message::CopyEntry(entry.id))
@@ -548,7 +552,10 @@ fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
         .into()
     };
 
-    widget::container(body).width(Length::Fill).padding(12).into()
+    widget::container(body)
+        .width(Length::Fill)
+        .padding(12)
+        .into()
 }
 
 fn badge(label: String, active: bool) -> Element<'static, Message> {
@@ -577,10 +584,9 @@ fn result_count_label(is_searching: bool, shown: usize, total: usize) -> String 
 }
 
 fn persist_config(config: &Config) {
-    if let Ok(context) = cosmic_config::Config::new(
-        <AppModel as cosmic::Application>::APP_ID,
-        Config::VERSION,
-    ) {
+    if let Ok(context) =
+        cosmic_config::Config::new(<AppModel as cosmic::Application>::APP_ID, Config::VERSION)
+    {
         let _ = config.write_entry(&context);
     }
 }
