@@ -7,7 +7,7 @@ use crate::model::ClipboardPayload;
 use crate::storage::ClipboardStore;
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
-use cosmic::iced::{futures, window::Id, Alignment, Length, Limits, Subscription};
+use cosmic::iced::{window::Id, Alignment, Length, Limits, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget;
 
@@ -186,7 +186,9 @@ impl cosmic::Application for AppModel {
 
     fn subscription(&self) -> Subscription<Self::Message> {
         Subscription::batch(vec![
-            Subscription::run(|| cosmic::iced::stream::channel(32, clipboard::watch_text_clipboard)),
+            Subscription::run(|| {
+                cosmic::iced::stream::channel(32, clipboard::watch_text_clipboard)
+            }),
             self.core().watch_config::<Config>(Self::APP_ID).map(|update| {
                 Message::UpdateConfig(update.config)
             }),
