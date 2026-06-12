@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import Pango from 'gi://Pango';
@@ -10,17 +11,15 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const POLL_INTERVAL_MS = 900;
+const POLL_INTERVAL_MS = 1500;
 const HELPER_NAME = 'tihulu-gnome-clipboard-helper';
-const MENU_WIDTH_PX = 360;
-const ENTRY_LABEL_WIDTH_PX = 170;
+const MENU_WIDTH_PX = 380;
+const ENTRY_LABEL_WIDTH_PX = 175;
+const IMAGE_PREVIEW_WIDTH_PX = 320;
+const IMAGE_PREVIEW_HEIGHT_PX = 220;
 
 function helperPath() {
     return GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', HELPER_NAME]);
-}
-
-function decodeBytes(bytes) {
-    return new TextDecoder('utf-8').decode(bytes);
 }
 
 const ClipboardIndicator = GObject.registerClass(
@@ -36,11 +35,12 @@ class ClipboardIndicator extends PanelMenu.Button {
         this._timeoutId = 0;
         this._lastError = null;
         this._stateFingerprint = '';
+        this._requestInFlight = false;
 
         this.menu.box.style = `min-width: ${MENU_WIDTH_PX}px; max-width: ${MENU_WIDTH_PX}px;`;
         this.menu.connect('open-state-changed', (_menu, isOpen) => {
             if (isOpen) {
-                this._refresh('state');
+                this._refresh('state', true);
             } else {
                 this._confirmClearAll = false;
             }
@@ -51,7 +51,7 @@ class ClipboardIndicator extends PanelMenu.Button {
             style_class: 'system-status-icon',
         }));
 
-        this._refresh('state');
+        this._refresh('state', true);
         this._startWatcher();
     }
 
@@ -66,31 +66,47 @@ class ClipboardIndicator extends PanelMenu.Button {
 
     _startWatcher() {
         this._timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, POLL_INTERVAL_MS, () => {
-            this._refresh('capture');
+            this._refresh('state', false);
             return GLib.SOURCE_CONTINUE;
         });
     }
 
-    _runHelper(args) {
+    _runHelper(args, callback) {
+        if (this._requestInFlight && args[0] === 'state') {
+            return;
+        }
+
+        this._requestInFlight = true;
+
         try {
-            const [ok, stdout, stderr, status] = GLib.spawn_sync(
-                null,
+            const proc = Gio.Subprocess.new(
                 [helperPath(), ...args],
-                null,
-                GLib.SpawnFlags.SEARCH_PATH,
-                null
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
             );
 
-            if (!ok || status !== 0) {
-                const detail = stderr ? decodeBytes(stderr).trim() : `exit status ${status}`;
-                throw new Error(detail || 'helper failed');
-            }
+            proc.communicate_utf8_async(null, null, (subprocess, result) => {
+                this._requestInFlight = false;
 
-            return JSON.parse(stdout ? decodeBytes(stdout).trim() : '{}');
+                try {
+                    const [ok, stdout, stderr] = subprocess.communicate_utf8_finish(result);
+                    if (!ok || !subprocess.get_successful()) {
+                        const detail = stderr ? stderr.trim() : `exit status ${subprocess.get_exit_status()}`;
+                        throw new Error(detail || 'helper failed');
+                    }
+
+                    const parsed = JSON.parse(stdout ? stdout.trim() : '{}');
+                    callback(parsed);
+                } catch (error) {
+                    this._lastError = `${error.message}. Run install-local.sh again.`;
+                    logError(error, 'Tihulu GNOME helper failed');
+                    callback(null);
+                }
+            });
         } catch (error) {
-            this._lastError = `${error.message}. Run gnome/scripts/quick-install.sh again.`;
-            logError(error, 'Tihulu GNOME helper failed');
-            return null;
+            this._requestInFlight = false;
+            this._lastError = `${error.message}. Run install-local.sh again.`;
+            logError(error, 'Tihulu GNOME helper launch failed');
+            callback(null);
         }
     }
 
@@ -112,26 +128,20 @@ class ClipboardIndicator extends PanelMenu.Button {
         return changed;
     }
 
-    _refresh(command = 'state') {
-        const errorBefore = this._lastError;
-        const changed = this._applyState(this._runHelper([command]));
-
-        // The capture timer runs often. Rebuilding the menu while it is open makes
-        // GNOME Shell look like the applet is constantly refreshing and also breaks
-        // typing in the search field. Keep the current popup stable during polling.
-        // Opening the menu calls a fresh `state` refresh, so old entries are not stale.
-        if (command === 'capture' && this.menu.isOpen) {
-            return;
-        }
-
-        if (changed || command !== 'capture' || this._lastError !== errorBefore) {
-            this._buildMenu();
-        }
+    _refresh(command = 'state', forceBuild = false) {
+        this._runHelper([command], state => {
+            const changed = this._applyState(state);
+            if (forceBuild || changed || this.menu.isOpen || this._lastError) {
+                this._buildMenu();
+            }
+        });
     }
 
     _helperAction(args) {
-        this._applyState(this._runHelper(args));
-        this._buildMenu();
+        this._runHelper(args, state => {
+            this._applyState(state);
+            this._buildMenu();
+        });
     }
 
     _setConfig(key, value) {
@@ -155,7 +165,11 @@ class ClipboardIndicator extends PanelMenu.Button {
         this._addSwitch('Encrypted history', this._config.encryptHistory, value => this._setConfig('encryptHistory', value));
         this._addSwitch('Sensitive filter', this._config.sensitiveFilter, value => this._setConfig('sensitiveFilter', value));
         this._addSwitch('Image history', this._config.imageClipboard, value => this._setConfig('imageClipboard', value));
-        this._addSwitch('Image size limit', this._config.limitImageSize, value => this._setConfig('limitImageSize', value));
+
+        const captureImageItem = new PopupMenu.PopupMenuItem('Capture image now');
+        captureImageItem.sensitive = this._config.imageClipboard === true;
+        captureImageItem.connect('activate', () => this._helperAction(['capture-image']));
+        this.menu.addMenuItem(captureImageItem);
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._entriesSection = new PopupMenu.PopupMenuSection();
@@ -184,7 +198,7 @@ class ClipboardIndicator extends PanelMenu.Button {
     _statusText() {
         return [
             this._config.encryptHistory ? 'Encrypted' : 'Plain JSON',
-            this._config.imageClipboard ? 'Images on' : 'Images off',
+            this._config.imageClipboard ? 'Images auto · encrypted store' : 'Images off',
             this._config.privateMode ? 'Private on' : 'Private off',
             `${this._entries.length}/${this._config.maxEntries ?? '?'} entries`,
         ].join(' · ');
@@ -239,6 +253,25 @@ class ClipboardIndicator extends PanelMenu.Button {
             row.add_child(this._entryButton(entry.pinned ? 'Unpin' : 'Pin', () => this._helperAction(['toggle-pin', `${entry.id}`])));
             row.add_child(this._entryButton('Delete', () => this._helperAction(['delete', `${entry.id}`])));
             this._entriesSection.addMenuItem(row);
+
+            if (entry.kind === 'image' && entry.imagePreviewUri) {
+                const previewRow = new PopupMenu.PopupBaseMenuItem({reactive: false});
+                const preview = new St.Widget({
+                    x_expand: true,
+                    style: [
+                        `width: ${IMAGE_PREVIEW_WIDTH_PX}px;`,
+                        `height: ${IMAGE_PREVIEW_HEIGHT_PX}px;`,
+                        `background-image: url("${entry.imagePreviewUri}");`,
+                        'background-size: contain;',
+                        'background-repeat: no-repeat;',
+                        'background-position: center;',
+                        'border-radius: 10px;',
+                        'margin: 6px 10px 12px 10px;',
+                    ].join(' '),
+                });
+                previewRow.add_child(preview);
+                this._entriesSection.addMenuItem(previewRow);
+            }
         }
     }
 
