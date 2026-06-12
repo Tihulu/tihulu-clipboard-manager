@@ -6,6 +6,8 @@ Tihulu Clipboard Manager focuses on privacy, clear history controls, and encrypt
 
 ## Security-first feature set
 
+- Text clipboard watcher for COSMIC/Wayland via `wl-paste`
+- Click-to-copy via `wl-copy`
 - Visible **Clear All / Erase All** button in the main popup
 - Confirmation before destructive history deletion
 - Real Erase All removes plaintext and encrypted persisted history files
@@ -24,15 +26,28 @@ Tihulu Clipboard Manager focuses on privacy, clear history controls, and encrypt
 
 ## Current status
 
-The security storage layer and popup actions are implemented in the scaffold.
+The security storage layer, popup actions, text clipboard watcher, and click-to-copy path are implemented in the scaffold.
 
 Still needed before daily use:
 
-- Connect the real Wayland data-control clipboard watcher
-- Implement click-to-copy by setting the Wayland clipboard
 - Test against the current COSMIC/libcosmic API on Pop!_OS
+- Install and verify `wl-clipboard` on the target system
 - Add per-application ignore rules if COSMIC/Wayland exposes source app metadata
 - Run `cargo check`, `cargo fmt`, `cargo clippy`, and `cargo audit` on a COSMIC development machine
+- Replace the `wl-clipboard` backend with a native Wayland data-control backend later if needed
+
+## Runtime dependency
+
+The first working clipboard backend uses `wl-clipboard`:
+
+```bash
+sudo apt install wl-clipboard
+```
+
+It uses:
+
+- `wl-paste` to watch the text clipboard
+- `wl-copy` to restore/copy a selected history item
 
 ## Build locally
 
@@ -54,7 +69,7 @@ sudo just install
 
 Clipboard managers are sensitive software. Treat this applet like a password-adjacent tool.
 
-Do not test development builds with real passwords, recovery phrases, API keys, SSH keys, or personal documents until the Wayland watcher and click-to-copy code has had a second security review.
+Do not test development builds with real passwords, recovery phrases, API keys, SSH keys, or personal documents until the watcher and click-to-copy code has had a second security review on the target COSMIC system.
 
 Read [`SECURITY.md`](SECURITY.md) before testing.
 
