@@ -1,0 +1,154 @@
+name: Release Full
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag, for example v0.1.0"
+        required: true
+        default: "v0.1.0"
+      prerelease:
+        description: "Mark release as pre-release"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  release-full:
+    name: Build and publish full release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libegl1-mesa-dev
+          pkg-config --exists xkbcommon
+          pkg-config --modversion xkbcommon
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Validate release input
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must look like v0.1.0" >&2
+            exit 1
+          fi
+
+      - name: Format check
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo fmt --manifest-path gnome/native-helper/Cargo.toml --all -- --check
+
+      - name: Cargo check
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check
+          cargo check --manifest-path gnome/native-helper/Cargo.toml
+
+      - name: Tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --all-targets --all-features
+          cargo test --manifest-path gnome/native-helper/Cargo.toml --all-targets --all-features
+
+      - name: Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo clippy --manifest-path gnome/native-helper/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Security audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo audit
+          cd gnome/native-helper
+          cargo generate-lockfile
+          cargo audit
+
+      - name: Build release binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release
+          cargo build --release --manifest-path gnome/native-helper/Cargo.toml
+
+      - name: Create release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version }}"
+          ARCHIVE="tihulu-clipboard-manager-${VERSION}-linux-x86_64.tar.gz"
+          rm -rf dist "$ARCHIVE"
+          mkdir -p dist/cosmic dist/gnome/helper dist/gnome/extension
+          cp target/release/tihulu-clipboard-manager dist/cosmic/
+          cp resources/app.desktop dist/cosmic/io.github.tihulu.ClipboardManager.desktop
+          cp resources/app.metainfo.xml dist/cosmic/io.github.tihulu.ClipboardManager.metainfo.xml
+          cp resources/icon.svg dist/cosmic/io.github.tihulu.ClipboardManager.svg
+          cp scripts/quick-install.sh dist/cosmic/
+          cp scripts/update.sh dist/cosmic/
+          cp gnome/native-helper/target/release/tihulu-gnome-clipboard-helper dist/gnome/helper/
+          cp -R gnome/extension-native/* dist/gnome/extension/
+          cp gnome/scripts/quick-install.sh dist/gnome/quick-install.sh
+          cp gnome/README.md dist/gnome/README.md
+          tar -C dist -czf "$ARCHIVE" .
+          sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version }}"
+          TITLE="$VERSION - Full preview release"
+          ARCHIVE="tihulu-clipboard-manager-${VERSION}-linux-x86_64.tar.gz"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --tags
+          if ! git rev-parse "$VERSION" >/dev/null 2>&1; then
+            git tag -a "$VERSION" -m "$VERSION"
+            git push origin "$VERSION"
+          fi
+          FLAGS=()
+          if [[ "${{ inputs.prerelease }}" == "true" ]]; then
+            FLAGS+=(--prerelease)
+          fi
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release edit "$VERSION" --title "$TITLE" --notes-file CHANGELOG.md "${FLAGS[@]}"
+            gh release upload "$VERSION" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
+          else
+            gh release create "$VERSION" "$ARCHIVE" "$ARCHIVE.sha256" --title "$TITLE" --notes-file CHANGELOG.md "${FLAGS[@]}"
+          fi
