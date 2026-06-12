@@ -346,6 +346,6 @@ fn image_limit_label(config: &Config) -> String {
     if config.limit_image_size {
         format!("{}: {}", fl!("image-limit"), fl!("limited-25-mib"))
     } else {
-        format!("{}: {}", fl!("image-limit"), fl!("unlimited"))
+        format!("{}: {}", fl!("image-limit"), fl!("no-size-cap"))
     }
 }
