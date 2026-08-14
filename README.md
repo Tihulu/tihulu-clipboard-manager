@@ -279,4 +279,4 @@ Read [`SECURITY.md`](SECURITY.md) before testing.
 - COSMIC binary name: `tihulu-clipboard-manager`
 - GNOME helper binary name: `tihulu-gnome-clipboard-helper`
 - App ID: `io.github.tihulu.ClipboardManager`
-- License: GPL-3.0-or-later
+- License: GNU Affero General Public License v3.0 (AGPLv3)
