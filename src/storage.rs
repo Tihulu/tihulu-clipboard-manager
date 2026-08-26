@@ -80,8 +80,10 @@ impl ClipboardStore {
 
         if plain_path.exists() {
             EncryptionState::Plaintext
-        } else {
+        } else if get_or_create_history_key().is_ok() {
             EncryptionState::Ready
+        } else {
+            EncryptionState::Error
         }
     }
 
