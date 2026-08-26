@@ -168,6 +168,65 @@ Example:
 BRANCH=main PREFIX=/usr/local KEEP_BUILD_DIR=1 bash /tmp/tihulu-quick-install.sh
 ```
 
+## Pop!_OS COSMIC Wayland notes
+
+This is the native path for Pop!_OS 24.04 COSMIC on Wayland. The applet does not use screencopy, thumbnails, PipeWire, or live window preview capture. Clipboard access is currently done through `wl-paste` and `wl-copy`.
+
+The text clipboard watcher and image clipboard watcher are separated. The image watcher is only subscribed while **Image History** is enabled in the settings popup. Image polling is intentionally slower than text polling to reduce subprocess and file-descriptor churn.
+
+If panel stability is more important than image history on your setup, open the applet settings and turn **Image History** off. Text history continues to work.
+
+## Where history is stored
+
+COSMIC history is stored locally under:
+
+```text
+~/.local/share/tihulu-clipboard-manager/
+```
+
+Encrypted history, the default, is stored at:
+
+```text
+~/.local/share/tihulu-clipboard-manager/history.enc.json
+```
+
+Plain history, only when encryption is disabled, is stored at:
+
+```text
+~/.local/share/tihulu-clipboard-manager/history.json
+```
+
+Image entries are not stored in a separate cache directory. They are stored as base64 payloads inside the same history file and are pruned by the same maximum-entry and maximum-age rules.
+
+The COSMIC encryption key is stored in the OS keyring using:
+
+```text
+service: io.github.tihulu.ClipboardManager
+user: history-encryption-key-v1
+```
+
+To clear local COSMIC history manually:
+
+```bash
+rm -f ~/.local/share/tihulu-clipboard-manager/history.enc.json
+rm -f ~/.local/share/tihulu-clipboard-manager/history.json
+```
+
+## FD/resource stability checks
+
+For long-running COSMIC testing, watch the applet, panel, and compositor together:
+
+```bash
+for name in tihulu-clipboard-manager cosmic-panel cosmic-comp; do
+  for pid in $(pgrep -x "$name" 2>/dev/null); do
+    printf '%s pid=%s fd=%s\n' "$name" "$pid" "$(ls /proc/$pid/fd 2>/dev/null | wc -l)"
+    grep -E 'VmRSS|VmSwap|Threads' /proc/$pid/status 2>/dev/null || true
+  done
+done
+```
+
+The FD count may move briefly during clipboard operations, but it should return close to baseline. A monotonic increase such as `80 → 81 → 82 → 83` after repeated operations should be treated as a leak.
+
 ## Current status
 
 The project is in active development.
@@ -257,26 +316,3 @@ sudo just install
 ## Security notes
 
 Clipboard managers are sensitive software. Treat this applet like a password-adjacent tool.
-
-Do not test development builds with real passwords, recovery phrases, API keys, SSH keys, personal documents, private screenshots, or QR codes containing secrets until the watcher and click-to-copy code has had a second security review on the target desktop/session.
-
-No-size-cap image mode can store very large screenshots or photos. Keep limited mode enabled unless you specifically need larger image clipboard entries.
-
-Read [`SECURITY.md`](SECURITY.md) before testing.
-
-## Roadmap
-
-- Dedicated native GNOME daemon command for release builds
-- Native Wayland data-control backend
-- Per-application ignore rules if the desktop/session exposes source app metadata
-- Persistent settings UI for security and image options
-- Native COSMIC styling pass
-- Release packaging after CI and runtime validation pass
-
-## App identity
-
-- Applet name: **Tihulu Clipboard Manager**
-- COSMIC binary name: `tihulu-clipboard-manager`
-- GNOME helper binary name: `tihulu-gnome-clipboard-helper`
-- App ID: `io.github.tihulu.ClipboardManager`
-- License: GNU Affero General Public License v3.0 (AGPLv3)
