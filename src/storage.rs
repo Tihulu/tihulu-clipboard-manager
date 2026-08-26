@@ -24,6 +24,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 const KEYRING_SERVICE: &str = "io.github.tihulu.ClipboardManager";
 const KEYRING_USER: &str = "history-encryption-key-v1";
+const LOCAL_KEY_FILE: &str = "history.key";
 const ENCRYPTED_FORMAT_VERSION: u8 = 1;
 const ALLOWED_IMAGE_MIME_TYPES: &[&str] = &["image/png", "image/jpeg", "image/webp", "image/gif"];
 const STORAGE_LOCK_DIR: &str = "history.lock";
@@ -424,23 +425,45 @@ pub fn is_allowed_image_mime(mime: &str) -> bool {
 }
 
 fn get_or_create_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(io::Error::other)?;
-
-    match entry.get_password() {
-        Ok(secret) => decode_history_key(&secret).or_else(|_| rotate_history_key()),
-        Err(_) => rotate_history_key(),
+    if let Ok(key) = read_local_history_key() {
+        return Ok(key);
     }
+
+    if let Ok(secret) = read_keyring_secret() {
+        if let Ok(key) = decode_history_key(&secret) {
+            let _ = write_local_history_key(&key);
+            return Ok(key);
+        }
+    }
+
+    rotate_history_key()
 }
 
 fn rotate_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(io::Error::other)?;
     let mut key = Zeroizing::new([0u8; 32]);
     OsRng.fill_bytes(key.as_mut());
-    entry
-        .set_password(&B64.encode(*key))
-        .map_err(io::Error::other)?;
-
+    write_local_history_key(&key)?;
+    let _ = write_keyring_secret(&key);
     Ok(key)
+}
+
+fn read_local_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
+    let secret = fs::read_to_string(local_key_path())?;
+    decode_history_key(secret.trim())
+}
+
+fn write_local_history_key(key: &[u8; 32]) -> io::Result<()> {
+    write_private_file(&local_key_path(), B64.encode(key).as_bytes())
+}
+
+fn read_keyring_secret() -> io::Result<String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(io::Error::other)?;
+    entry.get_password().map_err(io::Error::other)
+}
+
+fn write_keyring_secret(key: &[u8; 32]) -> io::Result<()> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(io::Error::other)?;
+    entry.set_password(&B64.encode(key)).map_err(io::Error::other)
 }
 
 fn decode_history_key(secret: &str) -> io::Result<Zeroizing<[u8; 32]>> {
@@ -463,6 +486,10 @@ fn storage_base_dir() -> PathBuf {
         })
         .unwrap_or_else(|| PathBuf::from("."))
         .join("tihulu-clipboard-manager")
+}
+
+fn local_key_path() -> PathBuf {
+    storage_base_dir().join(LOCAL_KEY_FILE)
 }
 
 fn acquire_storage_lock() -> io::Result<StorageLock> {
@@ -530,7 +557,7 @@ fn write_private_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
             .and_then(|name| name.to_str())
             .unwrap_or("history.enc.json"),
         std::process::id(),
-        unix_now()
+        unix_now_nanos()
     ));
 
     #[cfg(unix)]
@@ -567,6 +594,13 @@ fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
+fn unix_now_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
         .unwrap_or_default()
 }
 
