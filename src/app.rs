@@ -112,14 +112,23 @@ impl cosmic::Application for AppModel {
     }
 
     fn view(&self) -> Element<'_, Self::Message> {
-        widget::mouse_area(
+        let encryption_state = ClipboardStore::encryption_state();
+        let content = widget::row::with_children(vec![
             self.core
                 .applet
                 .icon_button("edit-paste-symbolic")
-                .on_press(Message::ToggleHistoryPopup),
-        )
-        .on_right_press(Message::ToggleSettingsPopup)
-        .into()
+                .on_press(Message::ToggleHistoryPopup)
+                .into(),
+            widget::button::text(encryption_status_label(encryption_state))
+                .on_press(Message::ToggleHistoryPopup)
+                .into(),
+        ])
+        .spacing(6)
+        .align_y(Alignment::Center);
+
+        widget::mouse_area(content)
+            .on_right_press(Message::ToggleSettingsPopup)
+            .into()
     }
 
     fn view_window(&self, _id: Id) -> Element<'_, Self::Message> {
