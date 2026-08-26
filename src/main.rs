@@ -6,9 +6,14 @@ mod config;
 mod i18n;
 mod model;
 mod sensitive;
+mod single_instance;
 mod storage;
 
 fn main() -> cosmic::iced::Result {
+    if single_instance::should_exit_duplicate() {
+        return Ok(());
+    }
+
     let requested_languages = i18n_embed::DesktopLanguageRequester::requested_languages();
     i18n::init(&requested_languages);
 
