@@ -47,6 +47,7 @@ pub enum Message {
     SetSafeCore(bool),
     SetImageClipboard(bool),
     SetImageLimit(bool),
+    RemovePlainHistory,
     CopyEntry(u64),
     EntryCopied(Result<(), String>),
     DeleteEntry(u64),
@@ -250,6 +251,16 @@ impl cosmic::Application for AppModel {
                 });
                 persist_config(&self.config);
             }
+            Message::RemovePlainHistory => {
+                let save_result = self.store.save(&self.config);
+                let delete_result = ClipboardStore::delete_plain_history_file();
+                self.last_action = Some(match (save_result, delete_result) {
+                    (Ok(()), Ok(())) => fl!("plain-history-removed"),
+                    (Err(error), _) | (_, Err(error)) => {
+                        format!("{} {error}", fl!("plain-history-remove-failed"))
+                    }
+                });
+            }
             Message::CopyEntry(id) => {
                 if let Some(entry) = self.store.entries().iter().find(|entry| entry.id == id) {
                     if let Some(text) = entry.text() {
@@ -407,6 +418,10 @@ impl AppModel {
             .push(status_row(&self.config, encryption_state))
             .push(search_row(&self.search_query));
 
+        if encryption_state == EncryptionState::Plaintext {
+            content = content.push(plain_history_cleanup_box());
+        }
+
         if let Some(action) = &self.last_action {
             content = content.push(widget::container(widget::text(action.clone())).padding(8));
         }
@@ -478,6 +493,10 @@ impl AppModel {
                 Message::SetImageLimit,
             ))
             .push(widget::divider::horizontal::light())
+            .push(
+                widget::button::text(fl!("remove-plain-history"))
+                    .on_press(Message::RemovePlainHistory),
+            )
             .push(widget::button::text(fl!("clear-all")).on_press(Message::RequestClearAll));
 
         if self.confirm_clear_all {
@@ -556,6 +575,24 @@ fn settings_switch_row(
         widget::toggler(value).on_toggle(on_toggle).into(),
     ])
     .align_y(Alignment::Center)
+    .into()
+}
+
+fn plain_history_cleanup_box() -> Element<'static, Message> {
+    widget::container(
+        widget::row::with_children(vec![
+            widget::text(fl!("plain-history-warning"))
+                .width(Length::Fill)
+                .into(),
+            widget::button::text(fl!("remove-plain-history"))
+                .on_press(Message::RemovePlainHistory)
+                .into(),
+        ])
+        .spacing(8)
+        .align_y(Alignment::Center),
+    )
+    .width(Length::Fill)
+    .padding(10)
     .into()
 }
 
