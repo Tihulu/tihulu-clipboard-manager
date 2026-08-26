@@ -69,10 +69,10 @@ jobs:
 
       - name: Security audit
         run: |
-          cargo audit
+          bash scripts/cargo-audit.sh
           cd gnome/native-helper
           cargo generate-lockfile
-          cargo audit
+          ../../scripts/cargo-audit.sh
 
       - name: Build release binaries
         run: |
