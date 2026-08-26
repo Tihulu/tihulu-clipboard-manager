@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.2.0 - Stable COSMIC encryption release
+
+This release stabilizes the COSMIC/Wayland applet for Pop!_OS 24.04 COSMIC, especially on multi-monitor setups where COSMIC may start one applet process per panel/output.
+
+### Fixed
+
+- Prevented encrypted history corruption from concurrent panel applet processes.
+- Replaced direct encrypted-history truncation with atomic temp-file writes.
+- Added a short storage lock around encrypted history save/delete/reset operations.
+- Fixed encrypted history reset so it creates a fresh key and a fresh encrypted store.
+- Avoided relying on Secret Service/keyring as the only source of the encryption key.
+
+### Changed
+
+- COSMIC encrypted history now uses a local `0600` key file at:
+
+```text
+~/.local/share/tihulu-clipboard-manager/history.key
+```
+
+- The OS keyring is now only a best-effort mirror/fallback for the local key.
+- Safe Core keeps encrypted history enforced and disables popup image preview decoding while still allowing image history storage when Image History is enabled.
+- Local full checks now run formatting before check/test/clippy/audit to avoid local format-only failures.
+
+### Verified runtime behavior
+
+- `Encryption: On` verified after encrypted reset.
+- Multi-process COSMIC panel state verified with three `tihulu-clipboard-manager` processes.
+- Verified permissions:
+
+```text
+700 ~/.local/share/tihulu-clipboard-manager
+600 ~/.local/share/tihulu-clipboard-manager/history.key
+600 ~/.local/share/tihulu-clipboard-manager/history.enc.json
+```
+
+### Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/quick-install.sh | bash
+```
+
+After installing, log out and log back in, then add **Tihulu Clipboard Manager** from COSMIC panel settings if it is not already present.
+
 ## v0.1.0 - Initial preview release
 
 This is the first public preview release of Tihulu Clipboard Manager, a security-first COSMIC panel clipboard manager applet.
