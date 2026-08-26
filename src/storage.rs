@@ -50,35 +50,32 @@ impl Default for ClipboardStore {
 }
 
 impl ClipboardStore {
-    pub fn load_or_default(config: &Config) -> Self {
-        let path = Self::data_path(config.encrypt_history);
-        let Ok(contents) = fs::read_to_string(path) else {
-            return Self::default();
-        };
-
-        if config.encrypt_history {
-            Self::load_encrypted(&contents).unwrap_or_default()
-        } else {
-            serde_json::from_str(&contents).unwrap_or_default()
+    pub fn load_or_default(_config: &Config) -> Self {
+        if let Ok(contents) = fs::read_to_string(Self::data_path(true)) {
+            return Self::load_encrypted(&contents).unwrap_or_default();
         }
+
+        fs::read_to_string(Self::data_path(false))
+            .ok()
+            .and_then(|contents| serde_json::from_str(&contents).ok())
+            .unwrap_or_default()
     }
 
     pub fn save(&self, config: &Config) -> io::Result<()> {
-        let path = Self::data_path(config.encrypt_history);
+        let config = config.clone().hardened();
+        let path = Self::data_path(true);
         if let Some(parent) = path.parent() {
             create_private_dir(parent)?;
         }
 
+        let mut clone = self.clone();
+        clone.prune(&config);
+
         let plaintext = Zeroizing::new(
-            serde_json::to_vec_pretty(self)
+            serde_json::to_vec_pretty(&clone)
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
         );
-
-        let bytes = if config.encrypt_history {
-            Self::encrypt_store(&plaintext)?
-        } else {
-            plaintext.to_vec()
-        };
+        let bytes = Self::encrypt_store(&plaintext)?;
 
         write_private_file(&path, &bytes)
     }
@@ -94,16 +91,25 @@ impl ClipboardStore {
         Ok(())
     }
 
+    pub fn delete_plain_history_file() -> io::Result<()> {
+        match fs::remove_file(Self::data_path(false)) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
     pub fn entries(&self) -> &[ClipboardEntry] {
         &self.entries
     }
 
     pub fn add_text(&mut self, text: impl Into<String>, config: &Config) -> AddContentResult {
+        let config = config.clone().hardened();
         if config.private_mode {
             return AddContentResult::SkippedPrivateMode;
         }
 
-        if config.max_text_bytes == 0 {
+        if config.effective_max_text_bytes() == 0 {
             return AddContentResult::SkippedTooLarge;
         }
 
@@ -112,7 +118,7 @@ impl ClipboardStore {
             return AddContentResult::SkippedEmpty;
         }
 
-        if text.len() > config.max_text_bytes {
+        if text.len() > config.effective_max_text_bytes() {
             return AddContentResult::SkippedTooLarge;
         }
 
@@ -134,7 +140,7 @@ impl ClipboardStore {
         };
         self.next_id += 1;
         self.entries.insert(0, entry);
-        self.prune(config);
+        self.prune(&config);
         AddContentResult::Added
     }
 
@@ -144,11 +150,12 @@ impl ClipboardStore {
         bytes: &[u8],
         config: &Config,
     ) -> AddContentResult {
+        let config = config.clone().hardened();
         if config.private_mode {
             return AddContentResult::SkippedPrivateMode;
         }
 
-        if !config.image_clipboard {
+        if !config.effective_image_clipboard() {
             return AddContentResult::SkippedUnsupportedMime;
         }
 
@@ -161,11 +168,11 @@ impl ClipboardStore {
             return AddContentResult::SkippedEmpty;
         }
 
-        if config.limit_image_size && config.max_image_bytes == 0 {
+        if config.effective_limit_image_size() && config.effective_max_image_bytes() == 0 {
             return AddContentResult::SkippedTooLarge;
         }
 
-        if config.limit_image_size && bytes.len() > config.max_image_bytes {
+        if config.effective_limit_image_size() && bytes.len() > config.effective_max_image_bytes() {
             return AddContentResult::SkippedTooLarge;
         }
 
@@ -184,13 +191,14 @@ impl ClipboardStore {
         };
         self.next_id += 1;
         self.entries.insert(0, entry);
-        self.prune(config);
+        self.prune(&config);
         AddContentResult::Added
     }
 
     pub fn prune(&mut self, config: &Config) {
-        self.prune_to_max_age(config.max_age_days);
-        self.prune_to_max_entries(config.max_entries);
+        let config = config.clone().hardened();
+        self.prune_to_max_age(config.effective_max_age_days());
+        self.prune_to_max_entries(config.effective_max_entries());
     }
 
     pub fn prune_to_max_age(&mut self, max_age_days: u64) {
@@ -429,6 +437,21 @@ mod tests {
         assert_eq!(
             store.add_image("image/png", &[1, 2, 3, 4], &config),
             AddContentResult::Added
+        );
+    }
+
+    #[test]
+    fn safe_core_disables_image_history_even_if_requested() {
+        let config = Config {
+            safe_core: true,
+            image_clipboard: true,
+            ..Config::default()
+        };
+        let mut store = ClipboardStore::default();
+
+        assert_eq!(
+            store.add_image("image/png", &[1, 2, 3, 4], &config),
+            AddContentResult::SkippedUnsupportedMime
         );
     }
 
