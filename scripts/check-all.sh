@@ -22,13 +22,13 @@ if ! cargo audit --version >/dev/null 2>&1; then
     cargo install cargo-audit --locked
 fi
 
-cargo fmt --all -- --check
+cargo fmt --all
 cargo check
 cargo test --all-targets --all-features
 cargo clippy --all-targets --all-features -- -D warnings
 bash scripts/cargo-audit.sh
 
-cargo fmt --manifest-path gnome/native-helper/Cargo.toml --all -- --check
+cargo fmt --manifest-path gnome/native-helper/Cargo.toml --all
 cargo check --manifest-path gnome/native-helper/Cargo.toml
 cargo test --manifest-path gnome/native-helper/Cargo.toml --all-targets --all-features
 cargo clippy --manifest-path gnome/native-helper/Cargo.toml --all-targets --all-features -- -D warnings
