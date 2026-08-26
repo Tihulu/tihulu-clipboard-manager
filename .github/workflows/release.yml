@@ -72,7 +72,7 @@ jobs:
           bash scripts/cargo-audit.sh
           cd gnome/native-helper
           cargo generate-lockfile
-          ../../scripts/cargo-audit.sh
+          bash ../../scripts/cargo-audit.sh
 
       - name: Build release binaries
         run: |
