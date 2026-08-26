@@ -44,6 +44,7 @@ pub enum Message {
     SetPrivateMode(bool),
     SetUniqueSession(bool),
     SetSensitiveFilter(bool),
+    SetImageClipboard(bool),
     SetImageLimit(bool),
     CopyEntry(u64),
     EntryCopied(Result<(), String>),
@@ -123,12 +124,20 @@ impl cosmic::Application for AppModel {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        Subscription::batch(vec![
-            Subscription::run(|| cosmic::iced::stream::channel(32, clipboard::watch_clipboard)),
+        let mut subscriptions = vec![
+            Subscription::run(|| cosmic::iced::stream::channel(32, clipboard::watch_text_clipboard)),
             self.core()
                 .watch_config::<Config>(Self::APP_ID)
                 .map(|update| Message::UpdateConfig(update.config)),
-        ])
+        ];
+
+        if self.config.image_clipboard {
+            subscriptions.push(Subscription::run(|| {
+                cosmic::iced::stream::channel(4, clipboard::watch_image_clipboard)
+            }));
+        }
+
+        Subscription::batch(subscriptions)
     }
 
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
@@ -197,6 +206,15 @@ impl cosmic::Application for AppModel {
                     fl!("sensitive-filter-enabled")
                 } else {
                     fl!("sensitive-filter-disabled")
+                });
+                persist_config(&self.config);
+            }
+            Message::SetImageClipboard(value) => {
+                self.config.image_clipboard = value;
+                self.last_action = Some(if value {
+                    fl!("image-clipboard-enabled")
+                } else {
+                    fl!("image-clipboard-disabled")
                 });
                 persist_config(&self.config);
             }
@@ -326,8 +344,8 @@ impl AppModel {
             PopupKind::Settings => Limits::NONE
                 .min_width(340.0)
                 .max_width(380.0)
-                .min_height(220.0)
-                .max_height(380.0),
+                .min_height(260.0)
+                .max_height(440.0),
         };
 
         tasks.push(get_popup(settings));
@@ -401,7 +419,7 @@ impl AppModel {
     }
 
     fn settings_popup(&self) -> Element<'_, Message> {
-        let mut content = widget::column::with_capacity(8)
+        let mut content = widget::column::with_capacity(9)
             .spacing(14)
             .padding(14)
             .push(widget::text::title3(fl!("app-title")))
@@ -419,6 +437,11 @@ impl AppModel {
                 fl!("sensitive-filter"),
                 self.config.sensitive_filter,
                 Message::SetSensitiveFilter,
+            ))
+            .push(settings_switch_row(
+                fl!("image-history"),
+                self.config.image_clipboard,
+                Message::SetImageClipboard,
             ))
             .push(settings_switch_row(
                 fl!("image-limit"),
