@@ -48,6 +48,7 @@ pub enum Message {
     SetImageClipboard(bool),
     SetImageLimit(bool),
     RemovePlainHistory,
+    ResetEncryptedHistory,
     CopyEntry(u64),
     EntryCopied(Result<(), String>),
     DeleteEntry(u64),
@@ -270,6 +271,22 @@ impl cosmic::Application for AppModel {
                     }
                 });
             }
+            Message::ResetEncryptedHistory => {
+                self.store.clear_all();
+                self.search_query.clear();
+                self.confirm_clear_all = false;
+
+                let delete_result = ClipboardStore::delete_persisted_files();
+                let save_result = self.store.save(&self.config);
+                let _ = ClipboardStore::delete_plain_history_file();
+
+                self.last_action = Some(match (delete_result, save_result) {
+                    (Ok(()), Ok(())) => fl!("encrypted-history-reset"),
+                    (Err(error), _) | (_, Err(error)) => {
+                        format!("{} {error}", fl!("encrypted-history-reset-failed"))
+                    }
+                });
+            }
             Message::CopyEntry(id) => {
                 if let Some(entry) = self.store.entries().iter().find(|entry| entry.id == id) {
                     if let Some(text) = entry.text() {
@@ -420,15 +437,21 @@ impl AppModel {
             }
         }
 
-        let mut content = widget::column::with_capacity(9)
+        let mut content = widget::column::with_capacity(10)
             .spacing(12)
             .padding(16)
             .push(header_row())
             .push(status_row(&self.config, encryption_state))
             .push(search_row(&self.search_query));
 
-        if encryption_state == EncryptionState::Plaintext {
-            content = content.push(plain_history_cleanup_box());
+        match encryption_state {
+            EncryptionState::Plaintext => {
+                content = content.push(plain_history_cleanup_box());
+            }
+            EncryptionState::Error => {
+                content = content.push(encryption_error_recovery_box());
+            }
+            EncryptionState::Ready | EncryptionState::Encrypted => {}
         }
 
         if let Some(action) = &self.last_action {
@@ -467,7 +490,7 @@ impl AppModel {
     }
 
     fn settings_popup(&self) -> Element<'_, Message> {
-        let mut content = widget::column::with_capacity(10)
+        let mut content = widget::column::with_capacity(11)
             .spacing(14)
             .padding(14)
             .push(widget::text::title3(fl!("app-title")))
@@ -505,6 +528,10 @@ impl AppModel {
             .push(
                 widget::button::text(fl!("remove-plain-history"))
                     .on_press(Message::RemovePlainHistory),
+            )
+            .push(
+                widget::button::text(fl!("reset-encrypted-history"))
+                    .on_press(Message::ResetEncryptedHistory),
             )
             .push(widget::button::text(fl!("clear-all")).on_press(Message::RequestClearAll));
 
@@ -605,6 +632,21 @@ fn plain_history_cleanup_box() -> Element<'static, Message> {
     .into()
 }
 
+fn encryption_error_recovery_box() -> Element<'static, Message> {
+    widget::container(
+        widget::column::with_children(vec![
+            widget::text(fl!("encryption-error-warning")).into(),
+            widget::button::text(fl!("reset-encrypted-history"))
+                .on_press(Message::ResetEncryptedHistory)
+                .into(),
+        ])
+        .spacing(8),
+    )
+    .width(Length::Fill)
+    .padding(10)
+    .into()
+}
+
 fn confirm_clear_box() -> Element<'static, Message> {
     widget::container(
         widget::column::with_children(vec![
@@ -696,8 +738,14 @@ fn entry_card<'a>(entry: &'a ClipboardEntry, config: &'a Config) -> Element<'a, 
 }
 
 fn badge(label: String, active: bool) -> Element<'static, Message> {
-    let marker = if active { "●" } else { "○" };
-    widget::container(widget::text(format!("{marker} {label}")))
+    let marker = if label.starts_with('⚠') {
+        ""
+    } else if active {
+        "● "
+    } else {
+        "○ "
+    };
+    widget::container(widget::text(format!("{marker}{label}")))
         .padding(6)
         .into()
 }
