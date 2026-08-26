@@ -13,8 +13,9 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
+    path::{Path, PathBuf},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use zeroize::Zeroizing;
 
@@ -25,6 +26,9 @@ const KEYRING_SERVICE: &str = "io.github.tihulu.ClipboardManager";
 const KEYRING_USER: &str = "history-encryption-key-v1";
 const ENCRYPTED_FORMAT_VERSION: u8 = 1;
 const ALLOWED_IMAGE_MIME_TYPES: &[&str] = &["image/png", "image/jpeg", "image/webp", "image/gif"];
+const STORAGE_LOCK_DIR: &str = "history.lock";
+const STORAGE_LOCK_RETRIES: usize = 50;
+const STORAGE_LOCK_RETRY_DELAY: Duration = Duration::from_millis(20);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum EncryptionState {
@@ -54,6 +58,16 @@ struct EncryptedStoreFile {
     ciphertext_b64: String,
 }
 
+struct StorageLock {
+    path: PathBuf,
+}
+
+impl Drop for StorageLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
 impl Default for ClipboardStore {
     fn default() -> Self {
         Self {
@@ -74,6 +88,15 @@ impl ClipboardStore {
                     Ok(_) => EncryptionState::Encrypted,
                     Err(_) => EncryptionState::Error,
                 },
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    if plain_path.exists() {
+                        EncryptionState::Plaintext
+                    } else if get_or_create_history_key().is_ok() {
+                        EncryptionState::Ready
+                    } else {
+                        EncryptionState::Error
+                    }
+                }
                 Err(_) => EncryptionState::Error,
             };
         }
@@ -105,6 +128,8 @@ impl ClipboardStore {
             create_private_dir(parent)?;
         }
 
+        let _lock = acquire_storage_lock()?;
+
         let mut clone = self.clone();
         clone.prune(&config);
 
@@ -118,6 +143,9 @@ impl ClipboardStore {
     }
 
     pub fn delete_persisted_files() -> io::Result<()> {
+        create_private_dir(&storage_base_dir())?;
+        let _lock = acquire_storage_lock()?;
+
         for path in [Self::data_path(false), Self::data_path(true)] {
             match fs::remove_file(&path) {
                 Ok(()) => {}
@@ -129,6 +157,9 @@ impl ClipboardStore {
     }
 
     pub fn delete_plain_history_file() -> io::Result<()> {
+        create_private_dir(&storage_base_dir())?;
+        let _lock = acquire_storage_lock()?;
+
         match fs::remove_file(Self::data_path(false)) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -341,22 +372,13 @@ impl ClipboardStore {
     }
 
     fn data_path(encrypted: bool) -> PathBuf {
-        let base = std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| {
-                std::env::var_os("HOME")
-                    .map(PathBuf::from)
-                    .map(|home| home.join(".local/share"))
-            })
-            .unwrap_or_else(|| PathBuf::from("."));
-
         let filename = if encrypted {
             "history.enc.json"
         } else {
             "history.json"
         };
 
-        base.join("tihulu-clipboard-manager").join(filename)
+        storage_base_dir().join(filename)
     }
 }
 
@@ -397,7 +419,63 @@ fn get_or_create_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
     Ok(key)
 }
 
-fn create_private_dir(path: &std::path::Path) -> io::Result<()> {
+fn storage_base_dir() -> PathBuf {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map(|home| home.join(".local/share"))
+        })
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("tihulu-clipboard-manager")
+}
+
+fn acquire_storage_lock() -> io::Result<StorageLock> {
+    let lock_path = storage_base_dir().join(STORAGE_LOCK_DIR);
+    for _ in 0..STORAGE_LOCK_RETRIES {
+        match fs::create_dir(&lock_path) {
+            Ok(()) => {
+                let _ = fs::write(lock_path.join("pid"), std::process::id().to_string());
+                return Ok(StorageLock { path: lock_path });
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                if !lock_owner_is_running(&lock_path) {
+                    let _ = fs::remove_dir_all(&lock_path);
+                    continue;
+                }
+                thread::sleep(STORAGE_LOCK_RETRY_DELAY);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::WouldBlock,
+        "timed out waiting for clipboard history storage lock",
+    ))
+}
+
+fn lock_owner_is_running(lock_path: &Path) -> bool {
+    let Ok(pid_text) = fs::read_to_string(lock_path.join("pid")) else {
+        return false;
+    };
+    let Ok(pid) = pid_text.trim().parse::<u32>() else {
+        return false;
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        PathBuf::from(format!("/proc/{pid}")).exists()
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
+fn create_private_dir(path: &Path) -> io::Result<()> {
     fs::create_dir_all(path)?;
 
     #[cfg(unix)]
@@ -406,25 +484,49 @@ fn create_private_dir(path: &std::path::Path) -> io::Result<()> {
     Ok(())
 }
 
-fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
+fn write_private_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "history path has no parent"))?;
+    create_private_dir(parent)?;
+
+    let tmp_path = parent.join(format!(
+        ".{}.{}.{}.tmp",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("history.enc.json"),
+        std::process::id(),
+        unix_now()
+    ));
+
     #[cfg(unix)]
     {
         let mut file = OpenOptions::new()
-            .create(true)
+            .create_new(true)
             .write(true)
-            .truncate(true)
             .mode(0o600)
-            .open(path)?;
+            .open(&tmp_path)?;
         file.write_all(bytes)?;
         file.sync_all()?;
+        drop(file);
+        fs::set_permissions(&tmp_path, fs::Permissions::from_mode(0o600))?;
+        fs::rename(&tmp_path, path)?;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        sync_parent_dir(parent)?;
         Ok(())
     }
 
     #[cfg(not(unix))]
     {
-        fs::write(path, bytes)
+        fs::write(&tmp_path, bytes)?;
+        fs::rename(&tmp_path, path)?;
+        Ok(())
     }
+}
+
+#[cfg(unix)]
+fn sync_parent_dir(path: &Path) -> io::Result<()> {
+    OpenOptions::new().read(true).open(path)?.sync_all()
 }
 
 fn unix_now() -> u64 {
