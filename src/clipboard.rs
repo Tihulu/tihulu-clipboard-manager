@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::AsyncWriteExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     process::Command,
     time::{sleep, timeout},
 };
@@ -18,6 +18,10 @@ use tokio::{
 const TEXT_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const IMAGE_POLL_INTERVAL: Duration = Duration::from_secs(10);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
+const TEXT_READ_MAX_BYTES: usize = 256 * 1024;
+const IMAGE_READ_MAX_BYTES: usize = 25 * 1024 * 1024;
+const MIME_LIST_MAX_BYTES: usize = 8 * 1024;
+const READ_CHUNK_BYTES: usize = 8 * 1024;
 const IMAGE_MIME_TYPES: &[&str] = &["image/png", "image/jpeg", "image/webp", "image/gif"];
 
 pub async fn watch_text_clipboard(mut sender: Sender<Message>) {
@@ -75,6 +79,8 @@ async fn write_clipboard(mime: &str, bytes: Vec<u8>) -> Result<(), String> {
     command
         .args(["--type", mime])
         .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .kill_on_drop(true);
 
     let mut child = command
@@ -111,7 +117,7 @@ async fn write_clipboard(mime: &str, bytes: Vec<u8>) -> Result<(), String> {
 }
 
 async fn read_text_clipboard() -> io::Result<Option<String>> {
-    let Some(bytes) = read_clipboard_mime("text/plain", true).await? else {
+    let Some(bytes) = read_clipboard_mime("text/plain", true, TEXT_READ_MAX_BYTES).await? else {
         return Ok(None);
     };
 
@@ -124,8 +130,14 @@ async fn read_text_clipboard() -> io::Result<Option<String>> {
 }
 
 async fn read_image_clipboard() -> io::Result<Option<(String, Vec<u8>)>> {
+    let available_types = list_clipboard_types().await.unwrap_or_default();
+
     for mime in IMAGE_MIME_TYPES {
-        if let Some(bytes) = read_clipboard_mime(mime, false).await?
+        if !available_types.iter().any(|available| available == mime) {
+            continue;
+        }
+
+        if let Some(bytes) = read_clipboard_mime(mime, false, IMAGE_READ_MAX_BYTES).await?
             && !bytes.is_empty()
         {
             return Ok(Some(((*mime).to_string(), bytes)));
@@ -135,23 +147,83 @@ async fn read_image_clipboard() -> io::Result<Option<(String, Vec<u8>)>> {
     Ok(None)
 }
 
-async fn read_clipboard_mime(mime: &str, no_newline: bool) -> io::Result<Option<Vec<u8>>> {
+async fn list_clipboard_types() -> io::Result<Vec<String>> {
     let mut command = Command::new("wl-paste");
-    command.kill_on_drop(true);
+    command.arg("--list-types");
+
+    let Some(bytes) = capture_command_output(command, MIME_LIST_MAX_BYTES).await? else {
+        return Ok(Vec::new());
+    };
+
+    Ok(String::from_utf8_lossy(&bytes)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect())
+}
+
+async fn read_clipboard_mime(
+    mime: &str,
+    no_newline: bool,
+    max_bytes: usize,
+) -> io::Result<Option<Vec<u8>>> {
+    let mut command = Command::new("wl-paste");
     if no_newline {
         command.arg("--no-newline");
     }
     command.args(["--type", mime]);
 
-    let output = timeout(COMMAND_TIMEOUT, command.output())
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "wl-paste timed out"))??;
+    capture_command_output(command, max_bytes).await
+}
 
-    if !output.status.success() || output.stdout.is_empty() {
+async fn capture_command_output(
+    mut command: Command,
+    max_bytes: usize,
+) -> io::Result<Option<Vec<u8>>> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+
+    let mut child = command.spawn()?;
+    let Some(mut stdout) = child.stdout.take() else {
+        return Err(io::Error::other("failed to open command stdout"));
+    };
+
+    let output = timeout(COMMAND_TIMEOUT, async move {
+        let mut bytes = Vec::new();
+        let mut buffer = vec![0u8; READ_CHUNK_BYTES];
+
+        loop {
+            let read = stdout.read(&mut buffer).await?;
+            if read == 0 {
+                break;
+            }
+
+            if bytes.len().saturating_add(read) > max_bytes {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "clipboard payload is too large",
+                ));
+            }
+
+            bytes.extend_from_slice(&buffer[..read]);
+        }
+
+        let status = child.wait().await?;
+        Ok::<_, io::Error>((status, bytes))
+    })
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "clipboard command timed out"))??;
+
+    let (status, bytes) = output;
+    if !status.success() || bytes.is_empty() {
         return Ok(None);
     }
 
-    Ok(Some(output.stdout))
+    Ok(Some(bytes))
 }
 
 fn hash_payload(mime: &str, bytes: &[u8]) -> u64 {
