@@ -122,24 +122,31 @@ impl ClipboardStore {
     }
 
     pub fn save(&self, config: &Config) -> io::Result<()> {
-        let config = config.clone().hardened();
         let path = Self::data_path(true);
         if let Some(parent) = path.parent() {
             create_private_dir(parent)?;
         }
 
         let _lock = acquire_storage_lock()?;
+        self.save_unlocked(config)
+    }
 
-        let mut clone = self.clone();
-        clone.prune(&config);
+    pub fn reset_encrypted_history(config: &Config) -> io::Result<Self> {
+        create_private_dir(&storage_base_dir())?;
+        let _lock = acquire_storage_lock()?;
 
-        let plaintext = Zeroizing::new(
-            serde_json::to_vec_pretty(&clone)
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
-        );
-        let bytes = Self::encrypt_store(&plaintext)?;
+        for path in [Self::data_path(false), Self::data_path(true)] {
+            match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
 
-        write_private_file(&path, &bytes)
+        let store = Self::default();
+        rotate_history_key()?;
+        store.save_unlocked(config)?;
+        Ok(store)
     }
 
     pub fn delete_persisted_files() -> io::Result<()> {
@@ -318,6 +325,25 @@ impl ClipboardStore {
         self.entries.retain(|entry| entry.pinned);
     }
 
+    fn save_unlocked(&self, config: &Config) -> io::Result<()> {
+        let config = config.clone().hardened();
+        let path = Self::data_path(true);
+        if let Some(parent) = path.parent() {
+            create_private_dir(parent)?;
+        }
+
+        let mut clone = self.clone();
+        clone.prune(&config);
+
+        let plaintext = Zeroizing::new(
+            serde_json::to_vec_pretty(&clone)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
+        );
+        let bytes = Self::encrypt_store(&plaintext)?;
+
+        write_private_file(&path, &bytes)
+    }
+
     fn load_encrypted(contents: &str) -> io::Result<Self> {
         let file: EncryptedStoreFile = serde_json::from_str(contents)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -400,16 +426,14 @@ pub fn is_allowed_image_mime(mime: &str) -> bool {
 fn get_or_create_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(io::Error::other)?;
 
-    if let Ok(secret) = entry.get_password() {
-        let bytes = B64
-            .decode(secret)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        let key: [u8; 32] = bytes
-            .try_into()
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid key length"))?;
-        return Ok(Zeroizing::new(key));
+    match entry.get_password() {
+        Ok(secret) => decode_history_key(&secret).or_else(|_| rotate_history_key()),
+        Err(_) => rotate_history_key(),
     }
+}
 
+fn rotate_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(io::Error::other)?;
     let mut key = Zeroizing::new([0u8; 32]);
     OsRng.fill_bytes(key.as_mut());
     entry
@@ -417,6 +441,16 @@ fn get_or_create_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
         .map_err(io::Error::other)?;
 
     Ok(key)
+}
+
+fn decode_history_key(secret: &str) -> io::Result<Zeroizing<[u8; 32]>> {
+    let bytes = B64
+        .decode(secret)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let key: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid key length"))?;
+    Ok(Zeroizing::new(key))
 }
 
 fn storage_base_dir() -> PathBuf {
