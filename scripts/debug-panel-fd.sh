@@ -6,15 +6,29 @@ set -Eeuo pipefail
 APP_NAME="${1:-tihulu-clipboard-manager}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-2}"
 
-while true; do
-    date '+%Y-%m-%d %H:%M:%S'
+find_pids() {
+    local pattern="$1"
+    pgrep -f "$pattern" 2>/dev/null | while read -r pid; do
+        [ -n "$pid" ] || continue
+        [ "$pid" != "$$" ] || continue
+        case "$(ps -o args= -p "$pid" 2>/dev/null || true)" in
+            *debug-panel-fd.sh*) continue ;;
+        esac
+        echo "$pid"
+    done
+}
 
-    mapfile -t app_pids < <(pgrep -x "$APP_NAME" || true)
-    if [ "${#app_pids[@]}" -eq 0 ]; then
-        echo "app: no running $APP_NAME process"
+print_process_group() {
+    local label="$1"
+    local pattern="$2"
+    mapfile -t pids < <(find_pids "$pattern" || true)
+
+    if [ "${#pids[@]}" -eq 0 ]; then
+        echo "$label: no matching process"
+        return
     fi
 
-    for pid in "${app_pids[@]}"; do
+    for pid in "${pids[@]}"; do
         fd_count="n/a"
         if [ -d "/proc/$pid/fd" ]; then
             fd_count="$(find "/proc/$pid/fd" -maxdepth 1 -type l 2>/dev/null | wc -l)"
@@ -22,15 +36,23 @@ while true; do
 
         rss_kib="$(ps -o rss= -p "$pid" 2>/dev/null | awk '{print $1}')"
         cpu_percent="$(ps -o %cpu= -p "$pid" 2>/dev/null | awk '{print $1}')"
-        echo "app pid=$pid fd=$fd_count rss_kib=${rss_kib:-n/a} cpu=${cpu_percent:-n/a}%"
+        args="$(ps -o args= -p "$pid" 2>/dev/null || true)"
+        echo "$label pid=$pid fd=$fd_count rss_kib=${rss_kib:-n/a} cpu=${cpu_percent:-n/a}% args=$args"
 
         children="$(pgrep -P "$pid" || true)"
         if [ -n "$children" ]; then
-            echo "children:"
+            echo "$label children:"
             # shellcheck disable=SC2086
             ps -o pid,ppid,stat,comm,args -p $children || true
         fi
     done
+}
+
+while true; do
+    date '+%Y-%m-%d %H:%M:%S'
+    print_process_group "app" "$APP_NAME"
+    print_process_group "panel" "cosmic-panel"
+    print_process_group "comp" "cosmic-comp"
 
     echo "wl helpers:"
     pgrep -af 'wl-paste|wl-copy' || echo "none"
