@@ -83,6 +83,6 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: Audit root crate
-        run: cargo audit
+        run: bash scripts/cargo-audit.sh
       - name: Audit GNOME helper
-        run: cd gnome/native-helper && cargo generate-lockfile && cargo audit
+        run: cd gnome/native-helper && cargo generate-lockfile && ../../scripts/cargo-audit.sh
