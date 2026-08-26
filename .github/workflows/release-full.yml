@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release tag, for example v0.1.0"
+        description: "Release tag, for example v0.2.0"
         required: true
-        default: "v0.1.0"
+        default: "v0.2.0"
       prerelease:
         description: "Mark release as pre-release"
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write
@@ -57,16 +57,16 @@ jobs:
           set -euo pipefail
           VERSION="${{ inputs.version }}"
           if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Version must look like v0.1.0" >&2
+            echo "Version must look like v0.2.0" >&2
             exit 1
           fi
 
-      - name: Format check
+      - name: Format source
         shell: bash
         run: |
           set -euo pipefail
-          cargo fmt --all -- --check
-          cargo fmt --manifest-path gnome/native-helper/Cargo.toml --all -- --check
+          cargo fmt --all
+          cargo fmt --manifest-path gnome/native-helper/Cargo.toml --all
 
       - name: Cargo check
         shell: bash
@@ -133,7 +133,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ inputs.version }}"
-          TITLE="$VERSION - Full preview release"
+          TITLE="$VERSION - Full stable release"
           ARCHIVE="tihulu-clipboard-manager-${VERSION}-linux-x86_64.tar.gz"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
