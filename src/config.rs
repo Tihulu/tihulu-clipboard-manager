@@ -8,7 +8,7 @@ pub const SAFE_CORE_MAX_TEXT_BYTES: usize = 64 * 1024;
 pub const SAFE_CORE_MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 
 #[derive(Debug, Clone, CosmicConfigEntry, Eq, PartialEq)]
-#[version = 5]
+#[version = 6]
 pub struct Config {
     pub confirm_before_clear_all: bool,
     pub max_entries: usize,
@@ -37,10 +37,10 @@ impl Default for Config {
             encrypt_history: true,
             sensitive_filter: true,
             max_text_bytes: 256 * 1024,
-            image_clipboard: true,
+            image_clipboard: false,
             limit_image_size: true,
             max_image_bytes: 25 * 1024 * 1024,
-            safe_core: false,
+            safe_core: true,
         }
     }
 }
