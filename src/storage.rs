@@ -482,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn safe_core_disables_image_history_even_if_requested() {
+    fn safe_core_keeps_image_history_but_disables_previews() {
         let config = Config {
             safe_core: true,
             image_clipboard: true,
@@ -492,15 +492,21 @@ mod tests {
 
         assert_eq!(
             store.add_image("image/png", &[1, 2, 3, 4], &config),
-            AddContentResult::SkippedUnsupportedMime
+            AddContentResult::Added
         );
+        assert!(config.effective_image_clipboard());
+        assert!(!config.image_previews_enabled());
+        assert!(config.effective_limit_image_size());
+        assert_eq!(config.effective_max_image_bytes(), 5 * 1024 * 1024);
     }
 
     #[test]
     fn default_config_uses_panel_safe_image_settings() {
         let config = Config::default();
         assert!(config.safe_core);
-        assert!(!config.effective_image_clipboard());
+        assert!(config.effective_image_clipboard());
+        assert!(!config.image_previews_enabled());
+        assert!(config.effective_limit_image_size());
     }
 
     #[test]
