@@ -4,7 +4,6 @@
 pub fn should_exit_duplicate() -> bool {
     use std::fs;
     use std::os::unix::fs::MetadataExt;
-    use std::path::PathBuf;
 
     let current_pid = std::process::id();
     let current_uid = fs::metadata(format!("/proc/{current_pid}"))
@@ -51,7 +50,7 @@ pub fn should_exit_duplicate() -> bool {
 
 #[cfg(target_os = "linux")]
 fn process_exe_name(pid: u32) -> Option<std::ffi::OsString> {
-    std::fs::read_link(PathBuf::from(format!("/proc/{pid}/exe")))
+    std::fs::read_link(format!("/proc/{pid}/exe"))
         .ok()
         .and_then(|path| path.file_name().map(|name| name.to_owned()))
 }
