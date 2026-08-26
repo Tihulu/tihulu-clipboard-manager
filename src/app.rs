@@ -130,7 +130,9 @@ impl cosmic::Application for AppModel {
 
     fn subscription(&self) -> Subscription<Self::Message> {
         let mut subscriptions = vec![
-            Subscription::run(|| cosmic::iced::stream::channel(32, clipboard::watch_text_clipboard)),
+            Subscription::run(|| {
+                cosmic::iced::stream::channel(32, clipboard::watch_text_clipboard)
+            }),
             self.core()
                 .watch_config::<Config>(Self::APP_ID)
                 .map(|update| Message::UpdateConfig(update.config)),
@@ -506,7 +508,10 @@ fn header_row() -> Element<'static, Message> {
 fn status_row(config: &Config, encryption_state: EncryptionState) -> Element<'static, Message> {
     widget::column::with_children(vec![
         widget::row::with_children(vec![
-            badge(encryption_status_label(encryption_state), encryption_state.is_secure()),
+            badge(
+                encryption_status_label(encryption_state),
+                encryption_state.is_secure(),
+            ),
             badge(fl!("badge-safe-core"), config.safe_core),
         ])
         .spacing(10)
@@ -576,7 +581,7 @@ fn confirm_clear_box() -> Element<'static, Message> {
     .into()
 }
 
-fn entry_card(entry: &ClipboardEntry, config: &Config) -> Element<'_, Message> {
+fn entry_card<'a>(entry: &'a ClipboardEntry, config: &'a Config) -> Element<'a, Message> {
     let pin_label = if entry.pinned {
         fl!("unpin")
     } else {
@@ -595,8 +600,8 @@ fn entry_card(entry: &ClipboardEntry, config: &Config) -> Element<'_, Message> {
     ])
     .spacing(14);
 
-    let body: Element<'_, Message> = if let Some((mime, size_bytes)) = entry.image_info() {
-        let preview: Element<'_, Message> = if !config.image_previews_enabled() {
+    let body: Element<'a, Message> = if let Some((mime, size_bytes)) = entry.image_info() {
+        let preview: Element<'a, Message> = if !config.image_previews_enabled() {
             widget::text(fl!("image-preview-safe-core")).into()
         } else if size_bytes <= PREVIEW_MAX_BYTES {
             if let Some((_, bytes)) = entry.image() {
