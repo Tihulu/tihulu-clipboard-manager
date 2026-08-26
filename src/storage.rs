@@ -450,6 +450,8 @@ mod tests {
     #[test]
     fn image_size_limit_is_enforced_when_enabled() {
         let config = Config {
+            safe_core: false,
+            image_clipboard: true,
             limit_image_size: true,
             max_image_bytes: 3,
             ..Config::default()
@@ -465,6 +467,8 @@ mod tests {
     #[test]
     fn image_size_limit_can_be_disabled() {
         let config = Config {
+            safe_core: false,
+            image_clipboard: true,
             limit_image_size: false,
             max_image_bytes: 3,
             ..Config::default()
@@ -493,8 +497,19 @@ mod tests {
     }
 
     #[test]
-    fn image_can_be_added_and_deduplicated() {
+    fn default_config_uses_panel_safe_image_settings() {
         let config = Config::default();
+        assert!(config.safe_core);
+        assert!(!config.effective_image_clipboard());
+    }
+
+    #[test]
+    fn image_can_be_added_and_deduplicated() {
+        let config = Config {
+            safe_core: false,
+            image_clipboard: true,
+            ..Config::default()
+        };
         let mut store = ClipboardStore::default();
 
         assert_eq!(
