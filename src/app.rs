@@ -4,7 +4,7 @@ use crate::clipboard;
 use crate::config::Config;
 use crate::fl;
 use crate::model::{ClipboardEntry, human_size};
-use crate::storage::{AddContentResult, ClipboardStore};
+use crate::storage::{AddContentResult, ClipboardStore, EncryptionState};
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
 use cosmic::iced::{Alignment, Length, Limits, Subscription, window::Id};
@@ -376,6 +376,7 @@ impl AppModel {
     fn history_popup(&self) -> Element<'_, Message> {
         let query = self.search_query.trim().to_lowercase();
         let is_searching = !query.is_empty();
+        let encryption_state = ClipboardStore::encryption_state();
         let entries: Vec<&ClipboardEntry> = self
             .store
             .entries()
@@ -401,7 +402,7 @@ impl AppModel {
             .spacing(12)
             .padding(16)
             .push(header_row())
-            .push(status_row(&self.config))
+            .push(status_row(&self.config, encryption_state))
             .push(search_row(&self.search_query));
 
         if let Some(action) = &self.last_action {
@@ -502,10 +503,10 @@ fn header_row() -> Element<'static, Message> {
     .into()
 }
 
-fn status_row(config: &Config) -> Element<'static, Message> {
+fn status_row(config: &Config, encryption_state: EncryptionState) -> Element<'static, Message> {
     widget::column::with_children(vec![
         widget::row::with_children(vec![
-            badge(fl!("badge-encrypted"), true),
+            badge(encryption_status_label(encryption_state), encryption_state.is_secure()),
             badge(fl!("badge-safe-core"), config.safe_core),
         ])
         .spacing(10)
@@ -520,6 +521,15 @@ fn status_row(config: &Config) -> Element<'static, Message> {
     ])
     .spacing(8)
     .into()
+}
+
+fn encryption_status_label(state: EncryptionState) -> String {
+    match state {
+        EncryptionState::Ready => fl!("encryption-ready"),
+        EncryptionState::Encrypted => fl!("encryption-on"),
+        EncryptionState::Plaintext => fl!("encryption-off"),
+        EncryptionState::Error => fl!("encryption-error"),
+    }
 }
 
 fn search_row(query: &str) -> Element<'_, Message> {
