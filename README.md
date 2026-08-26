@@ -6,13 +6,19 @@ Tihulu focuses on privacy, visible clear controls, encrypted local storage, text
 
 ## Stable one-line install
 
-For Pop!_OS 24.04 COSMIC Wayland, the stable GitHub install path is:
+For Pop!_OS 24.04 COSMIC Wayland, install the latest stable release from the pinned `v0.2.0` tag:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/v0.2.0/scripts/quick-install.sh | BRANCH=v0.2.0 bash
+```
+
+The installer builds from the stable `v0.2.0` release tag, runs Rust checks/tests, installs the COSMIC desktop entry, and asks you to restart COSMIC Shell or log out/in if the applet does not appear immediately.
+
+To install development `main` instead:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/quick-install.sh | bash
 ```
-
-The installer builds from the stable `main` branch, runs Rust checks/tests, installs the COSMIC desktop entry, and asks you to restart COSMIC Shell or log out/in if the applet does not appear immediately.
 
 ## Which version should I install?
 
@@ -26,29 +32,29 @@ The installer builds from the stable `main` branch, runs Rust checks/tests, inst
 
 This is the recommended path for Pop!_OS 24.04 COSMIC on Wayland.
 
-Review the script first:
+Review the stable release script first:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/quick-install.sh -o /tmp/tihulu-quick-install.sh
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/v0.2.0/scripts/quick-install.sh -o /tmp/tihulu-quick-install.sh
 less /tmp/tihulu-quick-install.sh
-bash /tmp/tihulu-quick-install.sh
+BRANCH=v0.2.0 bash /tmp/tihulu-quick-install.sh
 ```
 
 One-line stable install from GitHub:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/quick-install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/v0.2.0/scripts/quick-install.sh | BRANCH=v0.2.0 bash
 ```
 
 Optional environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `BRANCH` | `main` | Git branch to install from |
+| `BRANCH` | `main` | Git branch or tag to install from |
 | `PREFIX` | `/usr` | Install prefix passed to `just install` |
 | `KEEP_BUILD_DIR` | `0` | Set to `1` to keep the temporary build directory |
 
-Example:
+Example development install:
 
 ```bash
 BRANCH=main PREFIX=/usr/local KEEP_BUILD_DIR=1 bash /tmp/tihulu-quick-install.sh
@@ -158,10 +164,10 @@ rm -rf ~/.local/share/tihulu-clipboard-manager/history.lock
 rm -f ~/.local/share/tihulu-clipboard-manager/history.enc.json ~/.local/share/tihulu-clipboard-manager/history.json ~/.local/share/tihulu-clipboard-manager/history.key
 ```
 
-Then reinstall/update and let the applet create a fresh encrypted store:
+Then reinstall/update from the stable release and let the applet create a fresh encrypted store:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/quick-install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/v0.2.0/scripts/quick-install.sh | BRANCH=v0.2.0 bash
 pkill -f tihulu-clipboard-manager || true
 ```
 
