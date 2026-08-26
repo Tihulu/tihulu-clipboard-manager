@@ -4,6 +4,16 @@ A security-first clipboard history project for COSMIC/Wayland and GNOME/Ubuntu.
 
 Tihulu focuses on privacy, visible clear controls, encrypted local storage, text/image clipboard history, and stable panel behavior.
 
+## Stable one-line install
+
+For Pop!_OS 24.04 COSMIC Wayland, the stable GitHub install path is:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/quick-install.sh | bash
+```
+
+The installer builds from the stable `main` branch, runs Rust checks/tests, installs the COSMIC desktop entry, and asks you to restart COSMIC Shell or log out/in if the applet does not appear immediately.
+
 ## Which version should I install?
 
 | Desktop/session | Recommended path | Notes |
@@ -24,7 +34,7 @@ less /tmp/tihulu-quick-install.sh
 bash /tmp/tihulu-quick-install.sh
 ```
 
-One-line install from GitHub:
+One-line stable install from GitHub:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/quick-install.sh | bash
@@ -70,9 +80,11 @@ bash /tmp/tihulu-update.sh --gnome
 
 The COSMIC applet does **not** use screencopy, thumbnails, PipeWire, MPRIS, live window previews, or background screenshot capture. Clipboard access is currently done through `wl-paste` and `wl-copy`.
 
-The text clipboard watcher and image clipboard watcher are separated. Text polling is lightweight and slow by design. Image polling is slower and is only subscribed while **Image History** is effectively enabled.
+The text clipboard watcher and image clipboard watcher are separated. Text polling is lightweight and slow by design. Image polling is slower and only stores supported image payloads when **Image History** is enabled.
 
-For panel-sensitive systems, enable **Safe Core** in the applet settings. Safe Core keeps encryption enforced, disables image polling, disables image preview decoding, forces image size limiting, and reduces effective history limits.
+COSMIC may start one applet process per panel/output on multi-monitor systems. This is supported. Encrypted history storage is process-safe: writes use a short storage lock plus atomic temp-file replacement, and the encryption key is a local `0600` file so multiple panel processes do not race through Secret Service/keyring.
+
+For panel-sensitive systems, enable **Safe Core** in the applet settings. Safe Core keeps encryption enforced, disables image preview decoding, forces image size limiting, and reduces effective history limits.
 
 ## Safe Core mode
 
@@ -81,7 +93,7 @@ Safe Core is a low-resource stability mode for COSMIC panels.
 When Safe Core is enabled:
 
 - encrypted history remains enforced
-- image history polling is disabled
+- image history can still be stored if Image History is enabled
 - image previews are not decoded/rendered in the popup
 - image size limiting is forced on
 - effective maximum history entries are clamped to 50
@@ -105,6 +117,29 @@ Encrypted history is always enabled and is stored at:
 ~/.local/share/tihulu-clipboard-manager/history.enc.json
 ```
 
+The primary COSMIC encryption key is stored locally at:
+
+```text
+~/.local/share/tihulu-clipboard-manager/history.key
+```
+
+Expected permissions:
+
+```text
+700 ~/.local/share/tihulu-clipboard-manager
+600 ~/.local/share/tihulu-clipboard-manager/history.key
+600 ~/.local/share/tihulu-clipboard-manager/history.enc.json
+```
+
+Do **not** share `history.key`. If `history.key` is deleted, the existing `history.enc.json` file cannot be decrypted anymore. If you back up encrypted history, back up `history.key` and `history.enc.json` together.
+
+The OS keyring is used only as a best-effort mirror/fallback for the local encryption key:
+
+```text
+service: io.github.tihulu.ClipboardManager
+user: history-encryption-key-v1
+```
+
 The old plain history path is only kept as a legacy migration fallback and is removed after a successful encrypted save:
 
 ```text
@@ -113,18 +148,41 @@ The old plain history path is only kept as a legacy migration fallback and is re
 
 Image entries are not stored in a separate cache directory. If image history is enabled, image payloads are stored as base64 inside the same encrypted history file and are pruned by the same maximum-entry and maximum-age rules.
 
-The COSMIC encryption key is stored in the OS keyring using:
+## COSMIC encryption reset / repair
 
-```text
-service: io.github.tihulu.ClipboardManager
-user: history-encryption-key-v1
-```
-
-To clear local COSMIC history manually:
+Use this only when you intentionally want to erase local clipboard history and create a fresh encrypted store:
 
 ```bash
-rm -f ~/.local/share/tihulu-clipboard-manager/history.enc.json
-rm -f ~/.local/share/tihulu-clipboard-manager/history.json
+pkill -f tihulu-clipboard-manager || true
+rm -rf ~/.local/share/tihulu-clipboard-manager/history.lock
+rm -f ~/.local/share/tihulu-clipboard-manager/history.enc.json ~/.local/share/tihulu-clipboard-manager/history.json ~/.local/share/tihulu-clipboard-manager/history.key
+```
+
+Then reinstall/update and let the applet create a fresh encrypted store:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/main/scripts/quick-install.sh | bash
+pkill -f tihulu-clipboard-manager || true
+```
+
+After COSMIC restarts the applet, the panel popup should show:
+
+```text
+Encryption: On
+```
+
+To verify permissions:
+
+```bash
+stat -c '%a %n' ~/.local/share/tihulu-clipboard-manager ~/.local/share/tihulu-clipboard-manager/history.key ~/.local/share/tihulu-clipboard-manager/history.enc.json
+```
+
+Expected output pattern:
+
+```text
+700 .../tihulu-clipboard-manager
+600 .../history.key
+600 .../history.enc.json
 ```
 
 ## FD/resource stability checks
@@ -146,7 +204,7 @@ for name in tihulu-clipboard-manager cosmic-panel cosmic-comp; do
 done
 ```
 
-The FD count may move briefly during clipboard operations, but it should return close to baseline. A monotonic increase such as `80 → 81 → 82 → 83` after repeated operations should be treated as a leak.
+The FD count may move briefly during clipboard operations, but it should return close to baseline. A monotonic increase such as `80 -> 81 -> 82 -> 83` after repeated operations should be treated as a leak.
 
 ## GNOME / Ubuntu quick install
 
@@ -166,7 +224,7 @@ curl -fsSL https://raw.githubusercontent.com/Tihulu/tihulu-clipboard-manager/mai
 On GNOME X11/Xorg, reload GNOME Shell after install:
 
 ```text
-Alt + F2 → r → Enter
+Alt + F2 -> r -> Enter
 ```
 
 On GNOME Wayland, log out and log back in.
@@ -187,7 +245,8 @@ GNOME docs:
 - Confirmation before destructive history deletion
 - Encrypted history enforced at rest
 - `ChaCha20Poly1305` authenticated encryption for history storage
-- OS keyring-backed local encryption key
+- Local `0600` encryption key with best-effort OS keyring mirror
+- Process-safe atomic encrypted history writes for multi-monitor COSMIC panels
 - Private mode to stop storing new clipboard items
 - Unique session mode
 - Safe Core low-resource mode
@@ -209,7 +268,7 @@ Tihulu supports image clipboard entries for:
 - `image/webp`
 - `image/gif`
 
-By default, image history is limited to 25 MiB per entry. Safe Core reduces the effective image limit to 5 MiB and disables image polling entirely.
+By default, image history is limited to 25 MiB per entry. Safe Core reduces the effective image limit to 5 MiB and disables popup preview decoding.
 
 ## Runtime dependencies
 
@@ -248,20 +307,24 @@ just build-release
 sudo just install
 ```
 
-## Current status
-
-The project is in active development.
-
-Before daily use, verify the target build with:
+Full local check:
 
 ```bash
-cargo check
-cargo test --all-targets --all-features
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo audit
+bash scripts/check-all.sh
+```
+
+## Current status
+
+The COSMIC applet has been runtime-tested on Pop!_OS 24.04 COSMIC Wayland with multiple panel applet processes on a multi-monitor setup. Encrypted history remains `Encryption: On` with local key permissions verified as `0600`.
+
+Before release tagging, verify the target build with:
+
+```bash
+bash scripts/check-all.sh
 ```
 
 ## Security notes
 
 Clipboard managers are sensitive software. Treat this applet like a password-adjacent tool. Encryption is enforced for COSMIC history storage, but clipboard contents are still visible to local processes that can access the active session clipboard.
+
+Do not share `history.key`, screenshots containing secrets, or the contents of `history.enc.json` together with the matching key.
