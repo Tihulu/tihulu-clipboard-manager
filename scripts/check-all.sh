@@ -35,5 +35,5 @@ cargo clippy --manifest-path gnome/native-helper/Cargo.toml --all-targets --all-
 (
     cd gnome/native-helper
     cargo generate-lockfile
-    ../../scripts/cargo-audit.sh
+    bash ../../scripts/cargo-audit.sh
 )
