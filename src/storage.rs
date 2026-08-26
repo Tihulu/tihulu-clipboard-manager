@@ -26,6 +26,20 @@ const KEYRING_USER: &str = "history-encryption-key-v1";
 const ENCRYPTED_FORMAT_VERSION: u8 = 1;
 const ALLOWED_IMAGE_MIME_TYPES: &[&str] = &["image/png", "image/jpeg", "image/webp", "image/gif"];
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum EncryptionState {
+    Ready,
+    Encrypted,
+    Plaintext,
+    Error,
+}
+
+impl EncryptionState {
+    pub fn is_secure(self) -> bool {
+        matches!(self, Self::Ready | Self::Encrypted)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipboardStore {
     entries: Vec<ClipboardEntry>,
@@ -50,6 +64,27 @@ impl Default for ClipboardStore {
 }
 
 impl ClipboardStore {
+    pub fn encryption_state() -> EncryptionState {
+        let encrypted_path = Self::data_path(true);
+        let plain_path = Self::data_path(false);
+
+        if encrypted_path.exists() {
+            return match fs::read_to_string(&encrypted_path) {
+                Ok(contents) => match Self::load_encrypted(&contents) {
+                    Ok(_) => EncryptionState::Encrypted,
+                    Err(_) => EncryptionState::Error,
+                },
+                Err(_) => EncryptionState::Error,
+            };
+        }
+
+        if plain_path.exists() {
+            EncryptionState::Plaintext
+        } else {
+            EncryptionState::Ready
+        }
+    }
+
     pub fn load_or_default(_config: &Config) -> Self {
         if let Ok(contents) = fs::read_to_string(Self::data_path(true)) {
             return Self::load_encrypted(&contents).unwrap_or_default();
@@ -399,7 +434,7 @@ fn unix_now() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{AddContentResult, ClipboardStore, is_allowed_image_mime};
+    use super::{AddContentResult, ClipboardStore, EncryptionState, is_allowed_image_mime};
     use crate::config::Config;
 
     #[test]
@@ -468,5 +503,13 @@ mod tests {
             store.add_image("image/png", &[1, 2, 3, 4], &config),
             AddContentResult::SkippedDuplicate
         );
+    }
+
+    #[test]
+    fn encrypted_and_ready_states_are_secure() {
+        assert!(EncryptionState::Ready.is_secure());
+        assert!(EncryptionState::Encrypted.is_secure());
+        assert!(!EncryptionState::Plaintext.is_secure());
+        assert!(!EncryptionState::Error.is_secure());
     }
 }
