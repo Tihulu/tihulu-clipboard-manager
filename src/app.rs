@@ -44,6 +44,7 @@ pub enum Message {
     SetPrivateMode(bool),
     SetUniqueSession(bool),
     SetSensitiveFilter(bool),
+    SetSafeCore(bool),
     SetImageClipboard(bool),
     SetImageLimit(bool),
     CopyEntry(u64),
@@ -80,7 +81,10 @@ impl cosmic::Application for AppModel {
                 Ok(config) => config,
                 Err((_errors, config)) => config,
             })
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .hardened();
+
+        persist_config(&config);
 
         if config.unique_session {
             let _ = ClipboardStore::delete_persisted_files();
@@ -89,6 +93,7 @@ impl cosmic::Application for AppModel {
         let mut store = ClipboardStore::load_or_default(&config);
         store.prune(&config);
         let _ = store.save(&config);
+        let _ = ClipboardStore::delete_plain_history_file();
 
         (
             Self {
@@ -131,7 +136,7 @@ impl cosmic::Application for AppModel {
                 .map(|update| Message::UpdateConfig(update.config)),
         ];
 
-        if self.config.image_clipboard {
+        if self.config.effective_image_clipboard() {
             subscriptions.push(Subscription::run(|| {
                 cosmic::iced::stream::channel(4, clipboard::watch_image_clipboard)
             }));
@@ -159,7 +164,7 @@ impl cosmic::Application for AppModel {
                 }
             }
             Message::UpdateConfig(config) => {
-                let encryption_changed = self.config.encrypt_history != config.encrypt_history;
+                let config = config.hardened();
                 let unique_session_enabled = !self.config.unique_session && config.unique_session;
                 self.config = config;
 
@@ -169,12 +174,9 @@ impl cosmic::Application for AppModel {
                 }
 
                 self.store.prune(&self.config);
-
-                if encryption_changed {
-                    let _ = ClipboardStore::delete_persisted_files();
-                }
-
                 let _ = self.store.save(&self.config);
+                let _ = ClipboardStore::delete_plain_history_file();
+                persist_config(&self.config);
             }
             Message::SearchChanged(query) => {
                 self.search_query = query;
@@ -184,6 +186,7 @@ impl cosmic::Application for AppModel {
             }
             Message::SetPrivateMode(value) => {
                 self.config.private_mode = value;
+                self.config = self.config.clone().hardened();
                 self.last_action = Some(if value {
                     fl!("incognito-enabled")
                 } else {
@@ -193,6 +196,7 @@ impl cosmic::Application for AppModel {
             }
             Message::SetUniqueSession(value) => {
                 self.config.unique_session = value;
+                self.config = self.config.clone().hardened();
                 self.last_action = Some(if value {
                     fl!("unique-session-enabled")
                 } else {
@@ -202,6 +206,7 @@ impl cosmic::Application for AppModel {
             }
             Message::SetSensitiveFilter(value) => {
                 self.config.sensitive_filter = value;
+                self.config = self.config.clone().hardened();
                 self.last_action = Some(if value {
                     fl!("sensitive-filter-enabled")
                 } else {
@@ -209,9 +214,24 @@ impl cosmic::Application for AppModel {
                 });
                 persist_config(&self.config);
             }
+            Message::SetSafeCore(value) => {
+                self.config.safe_core = value;
+                self.config = self.config.clone().hardened();
+                self.store.prune(&self.config);
+                let _ = self.store.save(&self.config);
+                self.last_action = Some(if value {
+                    fl!("safe-core-enabled")
+                } else {
+                    fl!("safe-core-disabled")
+                });
+                persist_config(&self.config);
+            }
             Message::SetImageClipboard(value) => {
                 self.config.image_clipboard = value;
-                self.last_action = Some(if value {
+                self.config = self.config.clone().hardened();
+                self.last_action = Some(if value && self.config.safe_core {
+                    fl!("safe-core-image-disabled")
+                } else if self.config.effective_image_clipboard() {
                     fl!("image-clipboard-enabled")
                 } else {
                     fl!("image-clipboard-disabled")
@@ -220,7 +240,8 @@ impl cosmic::Application for AppModel {
             }
             Message::SetImageLimit(value) => {
                 self.config.limit_image_size = value;
-                self.last_action = Some(if value {
+                self.config = self.config.clone().hardened();
+                self.last_action = Some(if self.config.effective_limit_image_size() {
                     fl!("image-limit-enabled")
                 } else {
                     fl!("image-limit-disabled")
@@ -344,8 +365,8 @@ impl AppModel {
             PopupKind::Settings => Limits::NONE
                 .min_width(340.0)
                 .max_width(380.0)
-                .min_height(260.0)
-                .max_height(440.0),
+                .min_height(300.0)
+                .max_height(480.0),
         };
 
         tasks.push(get_popup(settings));
@@ -372,7 +393,7 @@ impl AppModel {
             list = list.push(widget::container(widget::text(fl!("no-results"))).padding(12));
         } else {
             for entry in entries.iter().copied() {
-                list = list.push(entry_card(entry));
+                list = list.push(entry_card(entry, &self.config));
             }
         }
 
@@ -419,10 +440,15 @@ impl AppModel {
     }
 
     fn settings_popup(&self) -> Element<'_, Message> {
-        let mut content = widget::column::with_capacity(9)
+        let mut content = widget::column::with_capacity(10)
             .spacing(14)
             .padding(14)
             .push(widget::text::title3(fl!("app-title")))
+            .push(settings_switch_row(
+                fl!("safe-core"),
+                self.config.safe_core,
+                Message::SetSafeCore,
+            ))
             .push(settings_switch_row(
                 fl!("incognito"),
                 self.config.private_mode,
@@ -440,12 +466,12 @@ impl AppModel {
             ))
             .push(settings_switch_row(
                 fl!("image-history"),
-                self.config.image_clipboard,
+                self.config.effective_image_clipboard(),
                 Message::SetImageClipboard,
             ))
             .push(settings_switch_row(
                 fl!("image-limit"),
-                self.config.limit_image_size,
+                self.config.effective_limit_image_size(),
                 Message::SetImageLimit,
             ))
             .push(widget::divider::horizontal::light())
@@ -479,12 +505,13 @@ fn header_row() -> Element<'static, Message> {
 fn status_row(config: &Config) -> Element<'static, Message> {
     widget::column::with_children(vec![
         widget::row::with_children(vec![
-            badge(fl!("badge-encrypted"), config.encrypt_history),
-            badge(fl!("badge-images"), config.image_clipboard),
+            badge(fl!("badge-encrypted"), true),
+            badge(fl!("badge-safe-core"), config.safe_core),
         ])
         .spacing(10)
         .into(),
         widget::row::with_children(vec![
+            badge(fl!("badge-images"), config.effective_image_clipboard()),
             badge(fl!("badge-sensitive"), config.sensitive_filter),
             badge(fl!("badge-incognito"), config.private_mode),
         ])
@@ -539,7 +566,7 @@ fn confirm_clear_box() -> Element<'static, Message> {
     .into()
 }
 
-fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
+fn entry_card(entry: &ClipboardEntry, config: &Config) -> Element<'_, Message> {
     let pin_label = if entry.pinned {
         fl!("unpin")
     } else {
@@ -559,7 +586,9 @@ fn entry_card(entry: &ClipboardEntry) -> Element<'_, Message> {
     .spacing(14);
 
     let body: Element<'_, Message> = if let Some((mime, size_bytes)) = entry.image_info() {
-        let preview: Element<'_, Message> = if size_bytes <= PREVIEW_MAX_BYTES {
+        let preview: Element<'_, Message> = if !config.image_previews_enabled() {
+            widget::text(fl!("image-preview-safe-core")).into()
+        } else if size_bytes <= PREVIEW_MAX_BYTES {
             if let Some((_, bytes)) = entry.image() {
                 widget::image(widget::image::Handle::from_bytes(bytes))
                     .width(Length::Fill)
@@ -634,6 +663,7 @@ fn persist_config(config: &Config) {
     if let Ok(context) =
         cosmic_config::Config::new(<AppModel as cosmic::Application>::APP_ID, Config::VERSION)
     {
+        let config = config.clone().hardened();
         let _ = config.write_entry(&context);
     }
 }
