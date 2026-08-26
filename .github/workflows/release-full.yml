@@ -93,10 +93,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo audit
+          bash scripts/cargo-audit.sh
           cd gnome/native-helper
           cargo generate-lockfile
-          cargo audit
+          ../../scripts/cargo-audit.sh
 
       - name: Build release binaries
         shell: bash
