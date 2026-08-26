@@ -429,11 +429,11 @@ fn get_or_create_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
         return Ok(key);
     }
 
-    if let Ok(secret) = read_keyring_secret() {
-        if let Ok(key) = decode_history_key(&secret) {
-            let _ = write_local_history_key(&key);
-            return Ok(key);
-        }
+    if let Ok(secret) = read_keyring_secret()
+        && let Ok(key) = decode_history_key(&secret)
+    {
+        let _ = write_local_history_key(&key);
+        return Ok(key);
     }
 
     rotate_history_key()
