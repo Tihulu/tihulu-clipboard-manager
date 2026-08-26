@@ -85,4 +85,4 @@ jobs:
       - name: Audit root crate
         run: bash scripts/cargo-audit.sh
       - name: Audit GNOME helper
-        run: cd gnome/native-helper && cargo generate-lockfile && ../../scripts/cargo-audit.sh
+        run: cd gnome/native-helper && cargo generate-lockfile && bash ../../scripts/cargo-audit.sh
