@@ -272,20 +272,21 @@ impl cosmic::Application for AppModel {
                 });
             }
             Message::ResetEncryptedHistory => {
-                self.store.clear_all();
                 self.search_query.clear();
                 self.confirm_clear_all = false;
 
-                let delete_result = ClipboardStore::delete_persisted_files();
-                let save_result = self.store.save(&self.config);
-                let _ = ClipboardStore::delete_plain_history_file();
-
-                self.last_action = Some(match (delete_result, save_result) {
-                    (Ok(()), Ok(())) => fl!("encrypted-history-reset"),
-                    (Err(error), _) | (_, Err(error)) => {
-                        format!("{} {error}", fl!("encrypted-history-reset-failed"))
+                match ClipboardStore::reset_encrypted_history(&self.config) {
+                    Ok(store) => {
+                        self.store = store;
+                        self.last_action = Some(fl!("encrypted-history-reset"));
                     }
-                });
+                    Err(error) => {
+                        self.last_action = Some(format!(
+                            "{} {error}",
+                            fl!("encrypted-history-reset-failed")
+                        ));
+                    }
+                }
             }
             Message::CopyEntry(id) => {
                 if let Some(entry) = self.store.entries().iter().find(|entry| entry.id == id) {
