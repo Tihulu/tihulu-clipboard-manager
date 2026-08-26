@@ -48,20 +48,6 @@ impl Default for Config {
 impl Config {
     pub fn hardened(mut self) -> Self {
         self.encrypt_history = true;
-
-        if self.safe_core {
-            self.limit_image_size = true;
-            self.image_clipboard = false;
-            self.max_entries = self.max_entries.min(SAFE_CORE_MAX_ENTRIES);
-            self.max_age_days = if self.max_age_days == 0 {
-                SAFE_CORE_MAX_AGE_DAYS
-            } else {
-                self.max_age_days.min(SAFE_CORE_MAX_AGE_DAYS)
-            };
-            self.max_text_bytes = self.max_text_bytes.min(SAFE_CORE_MAX_TEXT_BYTES);
-            self.max_image_bytes = self.max_image_bytes.min(SAFE_CORE_MAX_IMAGE_BYTES);
-        }
-
         self
     }
 
