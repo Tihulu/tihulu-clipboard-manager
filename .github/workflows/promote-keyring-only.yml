@@ -1,0 +1,64 @@
+name: Promote verified keyring-only source
+
+on:
+  push:
+    branches:
+      - security/keyring-only-v0.2.1
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security/keyring-only-v0.2.1
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies
+        run: bash scripts/ci-deps.sh
+      - name: Generate verified source
+        run: |
+          python3 scripts/apply-keyring-only-migration-v2.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('README.md')
+          s = p.read_text().replace(
+              '- OS keyring-only encryption key storage with automatic migration from legacy `history.key` files',
+              '- COSMIC: OS keyring-only encryption key storage with automatic migration from legacy `history.key` files'
+          )
+          p.write_text(s)
+          p = Path('SECURITY.md')
+          s = p.read_text().replace(
+              '- The encryption key is generated randomly and stored only in the OS keyring. Legacy `history.key` files are migrated into the keyring and removed after a verified round trip.',
+              '- The COSMIC applet encryption key is generated randomly and stored only in the OS keyring. Legacy COSMIC `history.key` files are migrated into the keyring and removed after a verified round trip.'
+          ).replace(
+              '- The OS keyring must be available; if it is unavailable, encrypted history load/save fails closed rather than silently falling back to plaintext or a local key file. A failed encrypted-history load locks persistence for that applet session until restart or an explicit encrypted-history reset.',
+              '- For the COSMIC applet, the OS keyring must be available; if it is unavailable, encrypted history load/save fails closed rather than silently falling back to plaintext or a local key file. A failed encrypted-history load locks persistence for that applet session until restart or an explicit encrypted-history reset.'
+          )
+          p.write_text(s)
+          p = Path('CHANGELOG.md')
+          s = p.read_text().replace(
+              '- Store the ChaCha20Poly1305 history key only in the OS keyring.',
+              '- Store the COSMIC applet ChaCha20Poly1305 history key only in the OS keyring.'
+          ).replace(
+              '- Migrate legacy `history.key` material into the keyring and remove the local key only after a verified keyring round trip.',
+              '- Migrate legacy COSMIC `history.key` material into the keyring and remove the local key only after a verified keyring round trip.'
+          )
+          p.write_text(s)
+          PY
+      - name: Verify generated source
+        run: |
+          cargo fmt --all -- --check
+          cargo check
+          cargo test --all-targets --all-features
+          cargo clippy --all-targets --all-features -- -D warnings
+      - name: Commit verified source
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/storage.rs Cargo.toml Cargo.lock README.md SECURITY.md CHANGELOG.md
+          git commit -m "security: move COSMIC history key to OS keyring only"
+          git push origin HEAD:security/keyring-only-v0.2.1
