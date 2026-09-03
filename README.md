@@ -251,7 +251,7 @@ GNOME docs:
 - Confirmation before destructive history deletion
 - Encrypted history enforced at rest
 - `ChaCha20Poly1305` authenticated encryption for history storage
-- Local `0600` encryption key with best-effort OS keyring mirror
+- COSMIC: OS keyring-only encryption key storage with automatic migration from legacy `history.key` files
 - Process-safe atomic encrypted history writes for multi-monitor COSMIC panels
 - Private mode to stop storing new clipboard items
 - Unique session mode

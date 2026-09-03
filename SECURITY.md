@@ -12,7 +12,7 @@ Current mitigations:
 
 - History encryption is enabled by default.
 - Encrypted history uses `ChaCha20Poly1305` authenticated encryption.
-- The encryption key is generated randomly and stored in the OS keyring.
+- The COSMIC applet encryption key is generated randomly and stored only in the OS keyring. Legacy COSMIC `history.key` files are migrated into the keyring and removed after a verified round trip.
 - The plaintext history file is removed when encryption mode is enabled or toggled.
 - The history file is stored under the user's XDG data directory.
 - On Unix systems, the history directory is forced to `0700`.
@@ -38,7 +38,7 @@ Current gaps:
 - The sensitive-content filter is heuristic and can have both false positives and false negatives.
 - Image payloads can contain sensitive visual data such as screenshots, QR codes, documents, and photos.
 - No-size-cap image mode can store very large visual payloads and should be used only when needed.
-- The OS keyring must be available; if it is unavailable, encrypted history load/save will fail rather than silently falling back to plaintext.
+- For the COSMIC applet, the OS keyring must be available; if it is unavailable, encrypted history load/save fails closed rather than silently falling back to plaintext or a local key file. A failed encrypted-history load locks persistence for that applet session until restart or an explicit encrypted-history reset.
 
 ## Safe testing guidance
 

@@ -1,3 +1,13 @@
+## v0.2.1 - Keyring-only encryption hardening
+
+- Store the COSMIC applet ChaCha20Poly1305 history key only in the OS keyring.
+- Migrate legacy COSMIC `history.key` material into the keyring and remove the local key only after a verified keyring round trip.
+- Fail closed when Secret Service/keyring access is unavailable or locked.
+- Never generate a replacement key when encrypted history already exists but the key is missing.
+- Lock persistence for the current applet session after encrypted-history load failure to prevent accidental overwrite after transient keyring recovery.
+- Refuse to delete plaintext history until the encrypted history can be read successfully.
+- Serialize key initialization and migration across concurrent COSMIC panel processes.
+
 # Changelog
 
 ## v0.2.0 - Stable COSMIC encryption release
