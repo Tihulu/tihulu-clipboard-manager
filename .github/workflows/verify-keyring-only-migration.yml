@@ -17,7 +17,7 @@ jobs:
       - name: Install system dependencies
         run: bash scripts/ci-deps.sh
       - name: Apply migration generator
-        run: python3 scripts/apply-keyring-only-migration.py
+        run: python3 scripts/apply-keyring-only-migration-v2.py
       - name: Format
         run: cargo fmt --all
       - name: Check
