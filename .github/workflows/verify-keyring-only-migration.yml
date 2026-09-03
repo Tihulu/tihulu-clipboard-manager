@@ -1,0 +1,39 @@
+name: Verify keyring-only migration
+
+on:
+  push:
+    branches:
+      - security/keyring-only-v0.2.1
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies
+        run: bash scripts/ci-deps.sh
+      - name: Apply migration generator
+        run: python3 scripts/apply-keyring-only-migration.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Check
+        run: cargo check
+      - name: Test
+        run: cargo test --all-targets --all-features
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Upload verified files
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyring-only-verified-files
+          path: |
+            src/storage.rs
+            Cargo.toml
+            Cargo.lock
+            README.md
+            SECURITY.md
+            CHANGELOG.md
