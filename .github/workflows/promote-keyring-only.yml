@@ -51,14 +51,15 @@ jobs:
           PY
       - name: Verify generated source
         run: |
-          cargo fmt --all -- --check
+          cargo fmt --all
           cargo check
           cargo test --all-targets --all-features
           cargo clippy --all-targets --all-features -- -D warnings
-      - name: Commit verified source
+      - name: Commit verified source only
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add src/storage.rs Cargo.toml Cargo.lock README.md SECURITY.md CHANGELOG.md
+          git diff --cached --check
           git commit -m "security: move COSMIC history key to OS keyring only"
           git push origin HEAD:security/keyring-only-v0.2.1
