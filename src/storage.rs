@@ -14,6 +14,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -28,8 +29,10 @@ const LOCAL_KEY_FILE: &str = "history.key";
 const ENCRYPTED_FORMAT_VERSION: u8 = 1;
 const ALLOWED_IMAGE_MIME_TYPES: &[&str] = &["image/png", "image/jpeg", "image/webp", "image/gif"];
 const STORAGE_LOCK_DIR: &str = "history.lock";
+const KEY_LOCK_DIR: &str = "history-key.lock";
 const STORAGE_LOCK_RETRIES: usize = 50;
 const STORAGE_LOCK_RETRY_DELAY: Duration = Duration::from_millis(20);
+static STORAGE_SESSION_LOCKED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum EncryptionState {
@@ -80,6 +83,10 @@ impl Default for ClipboardStore {
 
 impl ClipboardStore {
     pub fn encryption_state() -> EncryptionState {
+        if STORAGE_SESSION_LOCKED.load(Ordering::Acquire) {
+            return EncryptionState::Error;
+        }
+
         let encrypted_path = Self::data_path(true);
         let plain_path = Self::data_path(false);
 
@@ -112,8 +119,20 @@ impl ClipboardStore {
     }
 
     pub fn load_or_default(_config: &Config) -> Self {
-        if let Ok(contents) = fs::read_to_string(Self::data_path(true)) {
-            return Self::load_encrypted(&contents).unwrap_or_default();
+        let encrypted_path = Self::data_path(true);
+        if encrypted_path.exists() {
+            return match fs::read_to_string(&encrypted_path)
+                .and_then(|contents| Self::load_encrypted(&contents))
+            {
+                Ok(store) => {
+                    STORAGE_SESSION_LOCKED.store(false, Ordering::Release);
+                    store
+                }
+                Err(_) => {
+                    STORAGE_SESSION_LOCKED.store(true, Ordering::Release);
+                    Self::default()
+                }
+            };
         }
 
         fs::read_to_string(Self::data_path(false))
@@ -123,6 +142,13 @@ impl ClipboardStore {
     }
 
     pub fn save(&self, config: &Config) -> io::Result<()> {
+        if STORAGE_SESSION_LOCKED.load(Ordering::Acquire) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "encrypted history is locked for this session; restart or reset after fixing keyring access",
+            ));
+        }
+
         let path = Self::data_path(true);
         if let Some(parent) = path.parent() {
             create_private_dir(parent)?;
@@ -145,8 +171,10 @@ impl ClipboardStore {
         }
 
         let store = Self::default();
+        let _key_lock = acquire_key_lock()?;
         rotate_history_key()?;
         store.save_unlocked(config)?;
+        STORAGE_SESSION_LOCKED.store(false, Ordering::Release);
         Ok(store)
     }
 
@@ -168,7 +196,21 @@ impl ClipboardStore {
         create_private_dir(&storage_base_dir())?;
         let _lock = acquire_storage_lock()?;
 
-        match fs::remove_file(Self::data_path(false)) {
+        let plain_path = Self::data_path(false);
+        if !plain_path.exists() {
+            return Ok(());
+        }
+
+        let encrypted_path = Self::data_path(true);
+        let encrypted_contents = fs::read_to_string(&encrypted_path).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!("refusing to delete plaintext history before encrypted history is readable: {error}"),
+            )
+        })?;
+        Self::load_encrypted(&encrypted_contents)?;
+
+        match fs::remove_file(plain_path) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error),
@@ -368,9 +410,24 @@ impl ClipboardStore {
 
         let key = get_or_create_history_key()?;
         let cipher = ChaCha20Poly1305::new(Key::from_slice(&key[..]));
-        let plaintext = cipher
-            .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "failed to decrypt history"))?;
+        let plaintext = match cipher.decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref()) {
+            Ok(plaintext) => plaintext,
+            Err(_) => {
+                let legacy_key = read_local_history_key().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "failed to decrypt history")
+                })?;
+                let legacy_cipher = ChaCha20Poly1305::new(Key::from_slice(&legacy_key[..]));
+                let plaintext = legacy_cipher
+                    .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
+                    .map_err(|_| {
+                        io::Error::new(io::ErrorKind::InvalidData, "failed to decrypt history")
+                    })?;
+                let _key_lock = acquire_key_lock()?;
+                persist_keyring_key(&legacy_key)?;
+                remove_local_history_key()?;
+                plaintext
+            }
+        };
 
         serde_json::from_slice(&plaintext)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
@@ -425,26 +482,58 @@ pub fn is_allowed_image_mime(mime: &str) -> bool {
 }
 
 fn get_or_create_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
-    if let Ok(key) = read_local_history_key() {
-        return Ok(key);
+    match read_keyring_secret() {
+        Ok(secret) => decode_history_key(&secret),
+        Err(keyring::Error::NoEntry) => migrate_legacy_or_create_history_key(),
+        Err(error) => Err(io::Error::other(error)),
+    }
+}
+
+fn migrate_legacy_or_create_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
+    let _key_lock = acquire_key_lock()?;
+
+    // Another panel process may have initialized the key while we waited.
+    match read_keyring_secret() {
+        Ok(secret) => return decode_history_key(&secret),
+        Err(keyring::Error::NoEntry) => {}
+        Err(error) => return Err(io::Error::other(error)),
     }
 
-    if let Ok(secret) = read_keyring_secret()
-        && let Ok(key) = decode_history_key(&secret)
-    {
-        let _ = write_local_history_key(&key);
-        return Ok(key);
+    match read_local_history_key() {
+        Ok(key) => {
+            persist_keyring_key(&key)?;
+            remove_local_history_key()?;
+            Ok(key)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            if ClipboardStore::data_path(true).exists() {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "encrypted history exists but its key is missing from the OS keyring",
+                ));
+            }
+            rotate_history_key()
+        }
+        Err(error) => Err(error),
     }
-
-    rotate_history_key()
 }
 
 fn rotate_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
     let mut key = Zeroizing::new([0u8; 32]);
     OsRng.fill_bytes(key.as_mut());
-    write_local_history_key(&key)?;
-    let _ = write_keyring_secret(&key);
+    persist_keyring_key(&key)?;
+    remove_local_history_key()?;
     Ok(key)
+}
+
+fn persist_keyring_key(key: &[u8; 32]) -> io::Result<()> {
+    write_keyring_secret(key).map_err(io::Error::other)?;
+    let round_trip = read_keyring_secret().map_err(io::Error::other)?;
+    let verified = decode_history_key(&round_trip)?;
+    if &verified[..] != key {
+        return Err(io::Error::other("OS keyring verification failed"));
+    }
+    Ok(())
 }
 
 fn read_local_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
@@ -452,18 +541,22 @@ fn read_local_history_key() -> io::Result<Zeroizing<[u8; 32]>> {
     decode_history_key(secret.trim())
 }
 
-fn write_local_history_key(key: &[u8; 32]) -> io::Result<()> {
-    write_private_file(&local_key_path(), B64.encode(key).as_bytes())
+fn remove_local_history_key() -> io::Result<()> {
+    match fs::remove_file(local_key_path()) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
-fn read_keyring_secret() -> io::Result<String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(io::Error::other)?;
-    entry.get_password().map_err(io::Error::other)
+fn read_keyring_secret() -> Result<String, keyring::Error> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
+    entry.get_password()
 }
 
-fn write_keyring_secret(key: &[u8; 32]) -> io::Result<()> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(io::Error::other)?;
-    entry.set_password(&B64.encode(key)).map_err(io::Error::other)
+fn write_keyring_secret(key: &[u8; 32]) -> Result<(), keyring::Error> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
+    entry.set_password(&B64.encode(key))
 }
 
 fn decode_history_key(secret: &str) -> io::Result<Zeroizing<[u8; 32]>> {
@@ -493,7 +586,15 @@ fn local_key_path() -> PathBuf {
 }
 
 fn acquire_storage_lock() -> io::Result<StorageLock> {
-    let lock_path = storage_base_dir().join(STORAGE_LOCK_DIR);
+    acquire_named_lock(STORAGE_LOCK_DIR)
+}
+
+fn acquire_key_lock() -> io::Result<StorageLock> {
+    acquire_named_lock(KEY_LOCK_DIR)
+}
+
+fn acquire_named_lock(lock_dir: &str) -> io::Result<StorageLock> {
+    let lock_path = storage_base_dir().join(lock_dir);
     for _ in 0..STORAGE_LOCK_RETRIES {
         match fs::create_dir(&lock_path) {
             Ok(()) => {
@@ -513,7 +614,7 @@ fn acquire_storage_lock() -> io::Result<StorageLock> {
 
     Err(io::Error::new(
         io::ErrorKind::WouldBlock,
-        "timed out waiting for clipboard history storage lock",
+        format!("timed out waiting for clipboard storage lock: {lock_dir}"),
     ))
 }
 
